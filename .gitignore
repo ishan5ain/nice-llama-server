@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+
+# Build outputs
+dist/
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test and coverage artifacts
+*.test
+*.out
+coverage.out
+*.coverprofile
+
+# Dependency/vendor workspace artifacts
+vendor/
+go.work
+
+# Logs, temp files, and local scratch files
+*.log
+*.db
+*.tmp
+*.temp
+.env
+.env.*
+.devlocal/
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
