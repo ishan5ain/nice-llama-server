@@ -2,317 +2,342 @@ package tui
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
-	"time"
 
-	"nice-llama-server/internal/config"
+	lipgloss "charm.land/lipgloss/v2"
+)
+
+const (
+	headerPanelHeight = 5
+	footerPanelHeight = 2
 )
 
 func (m *model) render() string {
-	header := box("Nice Llama Server", []string{
-		runtimeSummary(m.snapshot),
-		fmt.Sprintf("bookmarks: %d  models: %d  roots: %d", len(m.snapshot.Bookmarks), len(m.snapshot.Models), len(m.snapshot.Config.ModelRoots)),
-		m.messageLine(),
-	}, m.width, 5)
+	width := max(m.width, 60)
+	height := max(m.height, 16)
 
-	mainWidth := m.width
-	mainHeight := m.height - len(header)
-	if mainHeight < 6 {
-		mainHeight = 6
-	}
+	header := m.renderHeader(width)
+	footer := m.renderFooter(width)
+	contentHeight := max(6, height-lipgloss.Height(header)-lipgloss.Height(footer))
+	content := m.renderBottom(width, contentHeight)
 
-	content := m.renderContent(mainWidth, mainHeight)
-	return strings.Join(append(header, content...), "\n")
+	return lipgloss.JoinVertical(lipgloss.Left, header, content, footer)
 }
 
-func (m *model) renderContent(width, height int) []string {
-	showLogs := m.showLogs && (m.snapshot.Runtime.Status != config.StatusIdle || len(m.logs) > 0)
-	if !showLogs {
-		return m.renderManager(width, height)
+func (m *model) renderHeader(width int) string {
+	titleLine := lipgloss.JoinHorizontal(
+		lipgloss.Left,
+		m.styles.headerTitle.Render("Nice Llama Server"),
+		"   ",
+		m.styles.headerStatus.Render("Runtime "+runtimeSummary(m.snapshot)),
+	)
+	if m.snapshot.Runtime.Port != 0 {
+		titleLine = lipgloss.JoinHorizontal(
+			lipgloss.Left,
+			titleLine,
+			"  ",
+			m.styles.headerStats.Render(fmt.Sprintf("@ %s:%d", hostOrDefault(m.snapshot.Runtime.Host), m.snapshot.Runtime.Port)),
+		)
 	}
-	if width >= height*2 {
-		leftWidth := width / 2
-		rightWidth := width - leftWidth
-		left := m.renderManager(leftWidth, height)
-		right := box("Logs", m.renderLogs(rightWidth-2, height-2), rightWidth, height)
-		return sideBySide(left, right, leftWidth, rightWidth)
+
+	statsLine := m.styles.headerStats.Render(fmt.Sprintf(
+		"%d bookmarks   %d models   %d roots",
+		len(m.snapshot.Bookmarks),
+		len(m.snapshot.Models),
+		len(m.snapshot.Config.ModelRoots),
+	))
+	statusLine := m.styles.headerMessage.Render(m.messageLine())
+
+	content := lipgloss.JoinVertical(lipgloss.Left, titleLine, statsLine, statusLine)
+
+	bodyHeight := max(1, headerPanelHeight-m.styles.headerPanel.GetVerticalFrameSize())
+	bodyWidth := max(1, width-m.styles.headerPanel.GetHorizontalFrameSize())
+	return m.styles.headerPanel.
+		Width(bodyWidth).
+		Height(bodyHeight).
+		Render(content)
+}
+
+func (m *model) renderBottom(width, height int) string {
+	if m.bottomView == bottomViewLogs {
+		return m.renderLogView(width, height)
 	}
-	topHeight := height / 2
-	if topHeight < 6 {
-		topHeight = 6
+	return m.renderBookmarkEditorView(width, height)
+}
+
+func (m *model) renderBookmarkEditorView(width, height int) string {
+	gap := 1
+	leftWidth := max(28, width*2/5)
+	if leftWidth > width-24 {
+		leftWidth = max(24, width/2)
 	}
-	bottomHeight := height - topHeight
+	rightWidth := max(20, width-leftWidth-gap)
+
+	left := m.renderModelListPanel(leftWidth, height)
+	right := m.renderDetailPanel(rightWidth, height)
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+}
+
+func (m *model) renderModelListPanel(width, height int) string {
+	items := m.renderListLines(max(1, width-m.styles.panelBase.GetHorizontalFrameSize()), max(1, height-m.styles.panelBase.GetVerticalFrameSize()))
+	content := lipgloss.JoinVertical(lipgloss.Left, items...)
+	style := m.panelStyleFor(focusModelList)
+	return style.Width(max(1, width-style.GetHorizontalFrameSize())).
+		Height(max(1, height-style.GetVerticalFrameSize())).
+		Render(content)
+}
+
+func (m *model) renderDetailPanel(width, height int) string {
+	lines := m.renderDetailLines(max(1, width-m.styles.panelBase.GetHorizontalFrameSize()), max(1, height-m.styles.panelBase.GetVerticalFrameSize()))
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	style := m.panelStyleFor(m.focus)
+	return style.Width(max(1, width-style.GetHorizontalFrameSize())).
+		Height(max(1, height-style.GetVerticalFrameSize())).
+		Render(content)
+}
+
+func (m *model) renderLogView(width, height int) string {
+	lines := m.renderLogLines(max(1, width-m.styles.panelBase.GetHorizontalFrameSize()), max(1, height-m.styles.panelBase.GetVerticalFrameSize()))
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	style := m.styles.logsPanel
+	return style.Width(max(1, width-style.GetHorizontalFrameSize())).
+		Height(max(1, height-style.GetVerticalFrameSize())).
+		Render(content)
+}
+
+func (m *model) renderFooter(width int) string {
+	content := m.footerLine()
+	bodyHeight := max(1, footerPanelHeight-m.styles.footerPanel.GetVerticalFrameSize())
+	bodyWidth := max(1, width-m.styles.footerPanel.GetHorizontalFrameSize())
+	return m.styles.footerPanel.Width(bodyWidth).Height(bodyHeight).Render(content)
+}
+
+func (m *model) renderListLines(width, height int) []string {
+	items := m.listItems()
+	if len(items) == 0 {
+		return clampStyledLines([]string{
+			m.styles.groupLabel.Render("No discovered model groups"),
+			m.styles.muted.Render("Press r to rescan model roots."),
+		}, height)
+	}
+
+	lines := make([]string, 0, len(items)+2)
+	for _, item := range items {
+		selected := item.key() == m.selectedKey
+		switch item.kind {
+		case listItemModelGroup:
+			line := item.label
+			if item.degraded {
+				line += " (missing)"
+			}
+			style := m.styles.groupLabel
+			if selected && m.focus == focusModelList {
+				style = m.styles.groupLabelSelected
+			}
+			lines = append(lines, crop(style.Render(line), width))
+		case listItemBookmark:
+			prefix := "  "
+			style := m.styles.bookmarkItem
+			if selected {
+				if m.focus == focusModelList {
+					style = m.styles.bookmarkSelected
+				} else {
+					style = m.styles.bookmarkActive
+				}
+				prefix = "▸ "
+			}
+			line := prefix + item.label
+			if item.degraded {
+				line += " (missing)"
+			}
+			lines = append(lines, crop(style.Render(line), width))
+		}
+	}
+	return clampStyledLines(lines, height)
+}
+
+func (m *model) renderDetailLines(width, height int) []string {
+	title := m.styles.panelTitle.Render("Bookmark Detail")
+	lines := []string{title}
+
+	if m.focus == focusModelList || m.editor == nil {
+		selected := m.selectedBookmark()
+		if selected == nil {
+			group, ok := m.currentGroupSelection()
+			if ok {
+				lines = append(lines, m.renderField("Bookmark Name", "", false, width)...)
+				lines = append(lines,
+					"",
+					m.styles.muted.Render("No bookmark selected."),
+					m.styles.muted.Render("Press n to create one under "+group.label+"."),
+				)
+				return clampStyledLines(lines, height)
+			}
+			lines = append(lines, m.styles.muted.Render("No models discovered. Press r to rescan."))
+			return clampStyledLines(lines, height)
+		}
+
+		lines = append(lines, m.renderField("Bookmark Name", selected.Name, false, width)...)
+		lines = append(lines, "")
+		argsLines := strings.Split(strings.TrimSpace(selected.ArgsText), "\n")
+		if len(argsLines) == 1 && argsLines[0] == "" {
+			argsLines = []string{"(empty)"}
+		}
+		lines = append(lines, m.renderFieldBlock("Args", argsLines, false, width, max(4, height-len(lines)-2))...)
+		return clampStyledLines(lines, height)
+	}
+
+	nameValue := m.editor.name.Value()
+	if m.focus == focusDetailName {
+		lines = append(lines, m.renderFieldBlock("Bookmark Name", m.editor.name.RenderLines(width, 1, true), true, width, 1)...)
+	} else {
+		lines = append(lines, m.renderField("Bookmark Name", nameValue, false, width)...)
+	}
+	lines = append(lines, "")
+
+	argsHeight := max(4, height-len(lines)-1)
+	lines = append(lines, m.renderFieldBlock("Args", m.editor.args.RenderLines(width, argsHeight, m.focus == focusDetailArgs), m.focus == focusDetailArgs, width, argsHeight)...)
+	return clampStyledLines(lines, height)
+}
+
+func (m *model) renderField(label, value string, focused bool, width int) []string {
+	if value == "" {
+		value = " "
+	}
 	return append(
-		m.renderManager(width, topHeight),
-		box("Logs", m.renderLogs(width-2, bottomHeight-2), width, bottomHeight)...,
+		[]string{m.styles.fieldLabel.Render(label)},
+		m.renderInputBox([]string{value}, focused, width, 1)...,
 	)
 }
 
-func (m *model) renderManager(width, height int) []string {
-	leftWidth := max(30, width/3)
-	if leftWidth > width-20 {
-		leftWidth = width / 2
-	}
-	rightWidth := width - leftWidth
-
-	left := box("Bookmarks", m.renderBookmarks(leftWidth-2, height-2), leftWidth, height)
-	rightTitle := "Details"
-	var rightBody []string
-	if m.editor != nil {
-		rightTitle = "Editor"
-		rightBody = m.renderEditor(rightWidth-2, height-2)
-	} else {
-		rightBody = m.renderDetails(rightWidth-2, height-2)
-	}
-	right := box(rightTitle, rightBody, rightWidth, height)
-	return sideBySide(left, right, leftWidth, rightWidth)
+func (m *model) renderFieldBlock(label string, values []string, focused bool, width, height int) []string {
+	lines := []string{m.styles.fieldLabel.Render(label)}
+	lines = append(lines, m.renderInputBox(values, focused, width, height)...)
+	return lines
 }
 
-func (m *model) renderBookmarks(width, height int) []string {
-	if len(m.snapshot.Bookmarks) == 0 {
-		return []string{
-			pad("No bookmarks yet.", width),
-			pad("Press n to create one.", width),
-		}
+func (m *model) renderInputBox(values []string, focused bool, width, height int) []string {
+	style := m.styles.inputBlur
+	if focused {
+		style = m.styles.inputFocus
 	}
 
-	lines := make([]string, 0, len(m.snapshot.Bookmarks)+4)
-	group := ""
-	for _, item := range m.snapshot.Bookmarks {
-		if item.GroupKey != group {
-			group = item.GroupKey
-			lines = append(lines, pad("["+group+"]", width))
-		}
-		marker := "  "
-		if item.ID == m.selectedID {
-			marker = "> "
-		}
-		lines = append(lines, pad(marker+item.Name, width))
+	if len(values) == 0 {
+		values = []string{" "}
 	}
-	return clampLines(lines, height, width)
+	content := lipgloss.JoinVertical(lipgloss.Left, clampStyledLines(values, height)...)
+	rendered := style.
+		Width(max(1, width-style.GetHorizontalFrameSize())).
+		Height(max(1, height-style.GetVerticalFrameSize())).
+		Render(content)
+	return strings.Split(rendered, "\n")
 }
 
-func (m *model) renderDetails(width, height int) []string {
-	selected := m.selectedBookmark()
-	if selected == nil {
-		return clampLines([]string{
-			"No bookmark selected.",
-			"",
-			"Keys:",
-			"n new bookmark",
-			"c clone bookmark",
-			"e edit bookmark",
-			"d delete bookmark",
-			"L load selected bookmark",
-			"U unload active runtime",
-			"g toggle log panel",
-			"r rescan model roots",
-		}, height, width)
-	}
-
-	lines := []string{
-		"Name: " + selected.Name,
-		"Model: " + displayModelValue(selected.ModelPath, m.snapshot.Models),
-		"Path:  " + selected.ModelPath,
-		"Group: " + selected.GroupKey,
-		"",
-		"Args:",
-	}
-	args := strings.Split(strings.TrimSpace(selected.ArgsText), "\n")
-	if len(args) == 1 && args[0] == "" {
-		lines = append(lines, "  (none)")
-	} else {
-		for _, line := range args {
-			lines = append(lines, "  "+line)
-		}
-	}
-	lines = append(lines,
-		"",
-		"Discovered Models:",
-	)
-	for _, model := range firstModels(m.snapshot.Models, 6) {
-		lines = append(lines, "  "+filepath.Base(model.Path))
-	}
-	if len(m.snapshot.Models) == 0 {
-		lines = append(lines, "  (none)")
-	}
-	lines = append(lines,
-		"",
-		"Keys:",
-		"n new  c clone  e edit  d delete",
-		"L load  U unload  g logs  r rescan  q quit",
-	)
-	if m.confirmDelete {
-		lines = append(lines, "", "Delete selected bookmark? Press y to confirm.")
-	}
-	return clampLines(lines, height, width)
-}
-
-func (m *model) renderEditor(width, height int) []string {
-	if m.editor == nil {
-		return nil
-	}
-	lines := []string{
-		"Ctrl+N / Ctrl+P changes fields.",
-		"Tab autocompletes the model filename.",
-		"Ctrl+S saves. Ctrl+L saves and loads.",
-		"Esc cancels editing.",
-		"",
-		"Name:",
-	}
-	lines = append(lines, m.editor.name.Render(width, 1, m.editor.focus == 0)...)
-	lines = append(lines, "", "Model Name:")
-	lines = append(lines, m.editor.model.Render(width, 1, m.editor.focus == 1)...)
-	lines = append(lines, "", "Suggested Models:")
-	suggestions := modelSuggestionLines(m.snapshot.Models, m.editor.model.Value(), 5)
-	for _, line := range suggestions {
-		lines = append(lines, "  "+line)
-	}
-	if len(suggestions) == 0 {
-		lines = append(lines, "  (no matches)")
-	}
-	lines = append(lines, "", "Args:")
-	argsHeight := height - len(lines) - 1
-	if argsHeight < 4 {
-		argsHeight = 4
-	}
-	lines = append(lines, m.editor.args.Render(width, argsHeight, m.editor.focus == 2)...)
-	return clampLines(lines, height, width)
-}
-
-func (m *model) renderLogs(width, height int) []string {
+func (m *model) renderLogLines(width, height int) []string {
+	lines := []string{m.styles.panelTitle.Render("Runtime Logs")}
 	if len(m.logs) == 0 {
-		return clampLines([]string{
-			"Waiting for logs...",
-		}, height, width)
+		lines = append(lines, m.styles.muted.Render("No logs yet."))
+		return clampStyledLines(lines, height)
 	}
-	lines := make([]string, 0, len(m.logs))
-	for _, entry := range m.logs {
-		lines = append(lines, fmt.Sprintf("%s [%s] %s", entry.TS.Format(time.Kitchen), entry.Stream, entry.Line))
+
+	available := max(1, height-1)
+	entries := m.logs
+	if len(entries) > available {
+		entries = entries[len(entries)-available:]
 	}
-	if len(lines) > height {
-		lines = lines[len(lines)-height:]
+	for _, entry := range entries {
+		ts := m.styles.logTimestamp.Render(entry.TS.Format("15:04:05"))
+		streamStyle := m.styles.logStdout
+		if entry.Stream == "stderr" {
+			streamStyle = m.styles.logStderr
+		}
+		if entry.Stream == "system" {
+			streamStyle = m.styles.logSystem
+		}
+		stream := streamStyle.Render(strings.ToUpper(entry.Stream))
+		line := lipgloss.JoinHorizontal(lipgloss.Left, ts, " ", stream, " ", crop(entry.Line, max(1, width-22)))
+		lines = append(lines, line)
 	}
-	return clampLines(lines, height, width)
+	return clampStyledLines(lines, height)
+}
+
+func (m *model) footerLine() string {
+	if m.confirmDelete {
+		return m.styles.footerKey.Render("y") + " delete   " + m.styles.footerKey.Render("n") + " cancel"
+	}
+
+	switch m.bottomView {
+	case bottomViewLogs:
+		return m.styles.footerKey.Render("/") + " bookmarks  " +
+			m.styles.footerKey.Render("Shift+L") + " load  " +
+			m.styles.footerKey.Render("Shift+U") + " unload  " +
+			m.styles.footerKey.Render("Ctrl+Q") + " quit"
+	default:
+		if m.focus == focusModelList {
+			return m.styles.footerKey.Render("↑/↓") + " navigate  " +
+				m.styles.footerKey.Render("e") + " edit  " +
+				m.styles.footerKey.Render("n") + " new  " +
+				m.styles.footerKey.Render("c") + " clone  " +
+				m.styles.footerKey.Render("d") + " delete  " +
+				m.styles.footerKey.Render("r") + " rescan  " +
+				m.styles.footerKey.Render("/") + " logs  " +
+				m.styles.footerKey.Render("Shift+L/U") + " load/unload  " +
+				m.styles.footerKey.Render("Ctrl+Q") + " quit"
+		}
+		return m.styles.footerKey.Render("↑/↓") + " move focus  " +
+			m.styles.footerKey.Render("Enter") + " next/newline  " +
+			m.styles.footerKey.Render("Ctrl+S") + " save  " +
+			m.styles.footerKey.Render("Esc") + " discard  " +
+			m.styles.footerKey.Render("/") + " logs  " +
+			m.styles.footerKey.Render("Shift+L/U") + " load/unload  " +
+			m.styles.footerKey.Render("Ctrl+Q") + " quit"
+	}
 }
 
 func (m *model) messageLine() string {
 	if m.errorMessage != "" {
-		return "error: " + m.errorMessage
+		return "Error · " + m.errorMessage
 	}
 	if m.flashMessage != "" {
 		return m.flashMessage
 	}
-	return "keys: n new  c clone  e edit  d delete  L load  U unload  g logs  r rescan  q quit"
+	return ""
 }
 
-func modelSuggestionLines(models []config.DiscoveredModel, query string, limit int) []string {
-	items := matchingModels(models, query, limit)
-	out := make([]string, 0, len(items))
-	for _, model := range items {
-		root := filepath.Base(model.Root)
-		if root == "." || root == string(filepath.Separator) || root == "" {
-			out = append(out, model.DisplayName)
-			continue
-		}
-		out = append(out, model.DisplayName+"  ["+root+"]")
+func (m *model) panelStyleFor(focus focusArea) lipgloss.Style {
+	if m.focus == focus && m.bottomView == bottomViewBookmarks {
+		return m.styles.panelFocus
 	}
-	return out
+	return m.styles.panelBase
 }
 
-func firstModels(models []config.DiscoveredModel, limit int) []config.DiscoveredModel {
-	if len(models) <= limit {
-		return models
+func crop(value string, width int) string {
+	if width <= 0 {
+		return ""
 	}
-	return models[:limit]
+	if lipgloss.Width(value) <= width {
+		return value
+	}
+	style := lipgloss.NewStyle().MaxWidth(width)
+	return style.Render(value)
 }
 
-func box(title string, body []string, width, height int) []string {
-	if width < 4 {
-		width = 4
-	}
-	if height < 3 {
-		height = 3
-	}
-	bodyWidth := width - 2
-	if bodyWidth < 1 {
-		bodyWidth = 1
-	}
-	lines := make([]string, 0, height)
-	lines = append(lines, "┌"+pad(" "+title+" ", bodyWidth, '─')+"┐")
-	innerHeight := height - 2
-	for i := 0; i < innerHeight; i++ {
-		line := ""
-		if i < len(body) {
-			line = truncate(body[i], bodyWidth)
-		}
-		lines = append(lines, "│"+pad(line, bodyWidth)+"│")
-	}
-	lines = append(lines, "└"+strings.Repeat("─", bodyWidth)+"┘")
-	return lines
-}
-
-func sideBySide(left, right []string, leftWidth, rightWidth int) []string {
-	height := max(len(left), len(right))
-	out := make([]string, 0, height)
-	for i := 0; i < height; i++ {
-		l := strings.Repeat(" ", leftWidth)
-		r := strings.Repeat(" ", rightWidth)
-		if i < len(left) {
-			l = pad(left[i], leftWidth)
-		}
-		if i < len(right) {
-			r = pad(right[i], rightWidth)
-		}
-		out = append(out, l+r)
-	}
-	return out
-}
-
-func clampLines(lines []string, height, width int) []string {
+func clampStyledLines(lines []string, height int) []string {
 	if height <= 0 {
 		return nil
 	}
 	if len(lines) > height {
 		lines = lines[:height]
 	}
-	out := make([]string, 0, height)
-	for _, line := range lines {
-		out = append(out, pad(truncate(line, width), width))
+	for len(lines) < height {
+		lines = append(lines, "")
 	}
-	for len(out) < height {
-		out = append(out, strings.Repeat(" ", max(width, 0)))
-	}
-	return out
+	return lines
 }
 
-func pad(value string, width int, filler ...rune) string {
-	runes := []rune(value)
-	if len(runes) > width {
-		return string(runes[:width])
+func hostOrDefault(host string) string {
+	if host == "" {
+		return "127.0.0.1"
 	}
-	fill := ' '
-	if len(filler) > 0 {
-		fill = filler[0]
-	}
-	return value + strings.Repeat(string(fill), width-len(runes))
-}
-
-func truncate(value string, width int) string {
-	runes := []rune(value)
-	if len(runes) <= width {
-		return value
-	}
-	if width <= 1 {
-		return string(runes[:width])
-	}
-	return string(runes[:width-1]) + "…"
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+	return host
 }

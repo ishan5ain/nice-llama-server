@@ -6,49 +6,58 @@ import (
 	"nice-llama-server/internal/config"
 )
 
-func TestResolveModelPathByDisplayName(t *testing.T) {
+func TestBookmarkEditorBookmarkTrimsFields(t *testing.T) {
 	t.Parallel()
 
-	models := []config.DiscoveredModel{
-		{Path: `C:\models\gemma-3-4b-it-Q4_K_M.gguf`, DisplayName: "gemma-3-4b-it-Q4_K_M"},
-		{Path: `C:\models\qwen3-8b-q4_k_m.gguf`, DisplayName: "qwen3-8b-q4_k_m"},
-	}
+	editor := newBookmarkEditor(config.Bookmark{
+		ID:        "bookmark-1",
+		ModelPath: "/models/gemma.gguf",
+		GroupKey:  "gemma",
+	}, false)
+	editor.name.SetValue("  Gemma Fast  ")
+	editor.args.SetValue("  --ctx-size 8192  \n")
 
-	got, err := resolveModelPath("gemma-3-4b-it-Q4_K_M", models)
-	if err != nil {
-		t.Fatalf("resolveModelPath returned error: %v", err)
+	bookmark := editor.Bookmark()
+	if bookmark.Name != "Gemma Fast" {
+		t.Fatalf("unexpected bookmark name: %q", bookmark.Name)
 	}
-	if got != models[0].Path {
-		t.Fatalf("unexpected path: got %q want %q", got, models[0].Path)
+	if bookmark.ArgsText != "--ctx-size 8192" {
+		t.Fatalf("unexpected args text: %q", bookmark.ArgsText)
+	}
+	if bookmark.ModelPath != "/models/gemma.gguf" {
+		t.Fatalf("unexpected model path: %q", bookmark.ModelPath)
+	}
+	if bookmark.GroupKey != "gemma" {
+		t.Fatalf("unexpected group key: %q", bookmark.GroupKey)
 	}
 }
 
-func TestResolveModelPathRejectsUnknownName(t *testing.T) {
+func TestBookmarkEditorDirtyTracksNameAndArgs(t *testing.T) {
 	t.Parallel()
 
-	_, err := resolveModelPath("missing-model", []config.DiscoveredModel{
-		{Path: `/models/gemma.gguf`, DisplayName: "gemma"},
-	})
-	if err == nil {
-		t.Fatalf("expected error for unknown model")
+	editor := newBookmarkEditor(config.Bookmark{
+		Name:     "Gemma",
+		ArgsText: "--ctx-size 4096",
+	}, false)
+	if editor.Dirty() {
+		t.Fatalf("new editor should start clean")
+	}
+
+	editor.args.InsertText(" --temp 0.7")
+	if !editor.Dirty() {
+		t.Fatalf("editor should be dirty after args change")
 	}
 }
 
-func TestAutocompleteModelUsesDisplayNames(t *testing.T) {
+func TestTextBufferRenderLinesShowsCursorOnFocusedRow(t *testing.T) {
 	t.Parallel()
 
-	models := []config.DiscoveredModel{
-		{Path: `/models/gemma-3-4b-it-Q4_K_M.gguf`, DisplayName: "gemma-3-4b-it-Q4_K_M"},
-		{Path: `/models/gemma-3-12b-it-Q4_K_M.gguf`, DisplayName: "gemma-3-12b-it-Q4_K_M"},
-	}
-	editor := newBookmarkEditor(config.Bookmark{}, models, true)
-	editor.focus = 1
-	editor.model.SetValue("gemma")
+	buffer := newTextBuffer("first\nsecond", true)
+	buffer.row = 1
+	buffer.col = 3
 
-	if !editor.AutocompleteModel(models) {
-		t.Fatalf("expected autocomplete to succeed")
-	}
-	if editor.model.Value() != "gemma-3-12b-it-Q4_K_M" && editor.model.Value() != "gemma-3-4b-it-Q4_K_M" {
-		t.Fatalf("unexpected autocomplete value: %q", editor.model.Value())
+	lines := buffer.RenderLines(20, 3, true)
+	if got := lines[1]; got != "sec█ond" {
+		t.Fatalf("unexpected focused line: %q", got)
 	}
 }

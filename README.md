@@ -35,6 +35,35 @@ The controller is responsible for:
 
 The TUI is a client for that controller.
 
+### Controller and TUI lifecycle
+
+On first launch in default mode, the app effectively brings up both parts of the system:
+- it checks for a healthy controller using the local `controller.json`
+- if no healthy controller is running, it launches one in the background
+- once the controller is reachable, it opens the TUI in the foreground and connects to it
+
+So the normal command:
+
+```bash
+nice-llama-server [model-dir...]
+```
+
+means:
+- background controller process
+- foreground TUI process
+
+If a controller is already running and healthy, the command only opens the TUI and reuses that controller.
+
+### What the controller exposes
+
+The controller is a local HTTP API with auth token protection. The TUI talks to it for:
+- state and bookmark CRUD
+- rescans
+- model load and unload
+- log polling
+
+The controller currently binds to loopback only (`127.0.0.1`), so it is intentionally local to the machine where it runs.
+
 ## Current Scope
 
 Implemented:
@@ -150,6 +179,8 @@ SSH into the Windows host and run:
   "C:\path\to\models"
 ```
 
+This starts the background controller if needed, then opens the TUI and attaches to it.
+
 You can pass multiple model roots:
 
 ```powershell
@@ -171,6 +202,41 @@ Supported flags:
 - `--state-dir <path>`: override the app state directory
 - `--controller-url <url>`: attach directly to an existing controller
 
+## Running Only the Controller
+
+If you want to manage the controller lifecycle yourself, run the `controller` subcommand:
+
+```bash
+./dist/nice-llama-server controller \
+  --llama-server-bin /opt/homebrew/bin/llama-server \
+  ~/.cache/huggingface/hub
+```
+
+On Windows:
+
+```powershell
+.\nice-llama-server.exe controller `
+  --llama-server-bin "C:\path\to\llama-server.exe" `
+  "C:\path\to\models"
+```
+
+That starts only the controller. No TUI is opened in this mode.
+
+## Running Only the TUI
+
+To run only the TUI, point it at an already running controller:
+
+```bash
+./dist/nice-llama-server --controller-url http://127.0.0.1:51234
+```
+
+This works when:
+- a controller is already running
+- the TUI can reach that controller URL
+- the TUI also has the matching controller token
+
+The token is stored in `controller.json` in the app state directory.
+
 ## State Storage
 
 By default, state lives under the user config directory:
@@ -181,46 +247,119 @@ The controller stores:
 - `state.json`: bookmarks and config
 - `controller.json`: active controller discovery info for the TUI
 
+`controller.json` contains:
+- controller URL
+- auth token
+- controller PID
+- controller start time
+
+The TUI uses this file to discover and authenticate to an already running controller.
+
+## Remote Host Controller With Local TUI
+
+This is possible, but there is an important constraint: the controller binds to `127.0.0.1` on the remote host. That means your local TUI cannot talk to it directly over the network.
+
+To do this today, you need:
+- a controller running on the remote host
+- an SSH tunnel from your local machine to the remote controller port
+- a local state dir containing a matching `controller.json` with the remote controller token
+
+### Recommended simple workflow
+
+The simplest validated workflow is still:
+- SSH into the remote host
+- run the normal app there
+- keep the session alive with `psmux`
+
+### Advanced workflow: remote controller, local TUI
+
+1. Start only the controller on the remote host:
+
+```powershell
+.\nice-llama-server.exe controller `
+  --llama-server-bin "C:\path\to\llama-server.exe" `
+  "C:\path\to\models"
+```
+
+2. Read the remote `controller.json` from the remote state dir.
+
+Windows default:
+
+```text
+%AppData%\nice-llama-server\controller.json
+```
+
+3. Note the controller URL and token.
+
+Example:
+
+```json
+{
+  "url": "http://127.0.0.1:51234",
+  "token": "your-token"
+}
+```
+
+4. Create an SSH tunnel from your local machine to the remote controller port:
+
+```bash
+ssh -L 51234:127.0.0.1:51234 user@remote-host
+```
+
+5. Create a local temporary state dir and place a `controller.json` in it that matches the tunneled URL and token:
+
+```bash
+mkdir -p /tmp/nls-remote
+```
+
+Example local `/tmp/nls-remote/controller.json`:
+
+```json
+{
+  "url": "http://127.0.0.1:51234",
+  "token": "your-token"
+}
+```
+
+6. Start only the local TUI against that tunneled controller:
+
+```bash
+./dist/nice-llama-server \
+  --state-dir /tmp/nls-remote \
+  --controller-url http://127.0.0.1:51234
+```
+
+Current limitation:
+- there is no dedicated `--controller-token` flag yet
+- the token must currently come from `controller.json`
+
 ## TUI Usage
 
 ### Main view
 
+- `/`: toggle between Bookmark Editor view and Log view
+- `Ctrl+Q`: quit
 - `n`: create bookmark
 - `c`: clone selected bookmark
 - `e`: edit selected bookmark
 - `d`: delete selected bookmark
+- `r`: rescan model roots
 - `L`: load selected bookmark
 - `U`: unload active runtime
-- `g`: toggle log panel
-- `r`: rescan model roots
-- `q`: quit
+- `Enter`: save edits when editing bookmark details
+- `Esc`: discard edits and return focus to the list
 
 ### Editor
 
-The editor has three fields:
+The bookmark detail pane has two editable fields:
 - bookmark name
-- model name
 - raw `llama-server` args
 
 Key behavior:
-- `Ctrl+N`: move to next field
-- `Ctrl+P`: move to previous field
-- `Tab` in the model field: autocomplete from discovered model names
-- `Ctrl+S`: save bookmark
-- `Ctrl+L`: save bookmark and start loading it
-- `Esc`: cancel editing
-
-### Model selection behavior
-
-You do not need to type the full absolute GGUF path in the editor.
-
-The model field accepts a discovered model name such as:
-
-```text
-gemma-3-4b-it-Q4_K_M
-```
-
-The TUI resolves that to the full GGUF path in the background when saving.
+- `e`: enter edit mode with focus on bookmark name
+- `Up` / `Down`: navigate the list or move between bookmark name and args
+- `Enter`: save changes and return focus to the list
+- `Esc`: discard unsaved changes and return focus to the list
 
 ## Bookmark Format
 
@@ -229,7 +368,7 @@ Each bookmark stores:
 - resolved full model path
 - free-form multiline args text
 
-The model field in the TUI is filename-oriented, but the saved bookmark still stores the resolved absolute path internally.
+The TUI groups bookmarks by discovered model, but bookmark storage still keeps the resolved absolute GGUF path internally.
 
 The args editor expects one argument fragment per line, for example:
 

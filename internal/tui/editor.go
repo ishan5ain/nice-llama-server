@@ -1,87 +1,48 @@
 package tui
 
 import (
-	"errors"
-	"path/filepath"
-	"slices"
 	"strings"
 
 	"nice-llama-server/internal/config"
 )
 
 type bookmarkEditor struct {
-	originalID      string
-	isNew           bool
-	focus           int
-	name            textBuffer
-	model           textBuffer
-	args            textBuffer
-	completionIndex int
+	originalID  string
+	isNew       bool
+	modelPath   string
+	groupKey    string
+	initialName string
+	initialArgs string
+	name        textBuffer
+	args        textBuffer
 }
 
-func newBookmarkEditor(b config.Bookmark, models []config.DiscoveredModel, isNew bool) *bookmarkEditor {
+func newBookmarkEditor(b config.Bookmark, isNew bool) *bookmarkEditor {
 	return &bookmarkEditor{
-		originalID: b.ID,
-		isNew:      isNew,
-		name:       newTextBuffer(b.Name, false),
-		model:      newTextBuffer(displayModelValue(b.ModelPath, models), false),
-		args:       newTextBuffer(b.ArgsText, true),
+		originalID:  b.ID,
+		isNew:       isNew,
+		modelPath:   b.ModelPath,
+		groupKey:    b.GroupKey,
+		initialName: strings.TrimSpace(b.Name),
+		initialArgs: strings.TrimSpace(b.ArgsText),
+		name:        newTextBuffer(b.Name, false),
+		args:        newTextBuffer(b.ArgsText, true),
 	}
 }
 
-func (e *bookmarkEditor) Bookmark(models []config.DiscoveredModel) (config.Bookmark, error) {
-	modelPath, err := resolveModelPath(e.model.Value(), models)
-	if err != nil {
-		return config.Bookmark{}, err
-	}
+func (e *bookmarkEditor) Bookmark() config.Bookmark {
 	return config.Bookmark{
 		ID:        e.originalID,
 		Name:      strings.TrimSpace(e.name.Value()),
-		ModelPath: modelPath,
-		ArgsText:  e.args.Value(),
-	}, nil
-}
-
-func (e *bookmarkEditor) NextFocus() {
-	e.focus = (e.focus + 1) % 3
-}
-
-func (e *bookmarkEditor) PrevFocus() {
-	e.focus = (e.focus + 2) % 3
-}
-
-func (e *bookmarkEditor) Current() *textBuffer {
-	switch e.focus {
-	case 0:
-		return &e.name
-	case 1:
-		return &e.model
-	default:
-		return &e.args
+		ModelPath: e.modelPath,
+		GroupKey:  e.groupKey,
+		ArgsText:  strings.TrimSpace(e.args.Value()),
 	}
 }
 
-func (e *bookmarkEditor) AutocompleteModel(models []config.DiscoveredModel) bool {
-	if e.focus != 1 {
-		return false
-	}
-	suggestions := modelSuggestionNames(models, e.model.Value(), 25)
-	if len(suggestions) == 0 {
-		return false
-	}
-
-	current := strings.TrimSpace(e.model.Value())
-	index := 0
-	for i, suggestion := range suggestions {
-		if strings.EqualFold(suggestion, current) {
-			index = (i + 1) % len(suggestions)
-			break
-		}
-	}
-
-	e.model.SetValue(suggestions[index])
-	e.completionIndex = index
-	return true
+func (e *bookmarkEditor) Dirty() bool {
+	return strings.TrimSpace(e.name.Value()) != e.initialName ||
+		strings.TrimSpace(e.args.Value()) != e.initialArgs
 }
 
 type textBuffer struct {
@@ -111,8 +72,8 @@ func (b *textBuffer) SetValue(value string) {
 	if len(b.lines) == 0 {
 		b.lines = [][]rune{{}}
 	}
-	b.row = len(b.lines) - 1
-	b.col = len(b.lines[b.row])
+	b.row = min(len(b.lines)-1, b.row)
+	b.col = min(len(b.lines[b.row]), b.col)
 }
 
 func (b *textBuffer) Value() string {
@@ -190,59 +151,73 @@ func (b *textBuffer) Delete() {
 	b.lines = append(b.lines[:b.row+1], b.lines[b.row+2:]...)
 }
 
-func (b *textBuffer) MoveLeft() {
+func (b *textBuffer) MoveLeft() bool {
 	if b.col > 0 {
 		b.col--
-		return
+		return true
 	}
 	if b.multiline && b.row > 0 {
 		b.row--
 		b.col = len(b.lines[b.row])
+		return true
 	}
+	return false
 }
 
-func (b *textBuffer) MoveRight() {
+func (b *textBuffer) MoveRight() bool {
 	if b.col < len(b.lines[b.row]) {
 		b.col++
-		return
+		return true
 	}
 	if b.multiline && b.row+1 < len(b.lines) {
 		b.row++
 		b.col = 0
+		return true
 	}
+	return false
 }
 
-func (b *textBuffer) MoveUp() {
+func (b *textBuffer) MoveUp() bool {
 	if !b.multiline || b.row == 0 {
-		return
+		return false
 	}
 	b.row--
 	if b.col > len(b.lines[b.row]) {
 		b.col = len(b.lines[b.row])
 	}
+	return true
 }
 
-func (b *textBuffer) MoveDown() {
+func (b *textBuffer) MoveDown() bool {
 	if !b.multiline || b.row+1 >= len(b.lines) {
-		return
+		return false
 	}
 	b.row++
 	if b.col > len(b.lines[b.row]) {
 		b.col = len(b.lines[b.row])
 	}
+	return true
 }
 
-func (b *textBuffer) MoveHome() {
+func (b *textBuffer) MoveHome() bool {
+	if b.col == 0 {
+		return false
+	}
 	b.col = 0
+	return true
 }
 
-func (b *textBuffer) MoveEnd() {
+func (b *textBuffer) MoveEnd() bool {
+	if b.col == len(b.lines[b.row]) {
+		return false
+	}
 	b.col = len(b.lines[b.row])
+	return true
 }
 
-func (b *textBuffer) Render(width, height int, focused bool) []string {
-	if width < 4 {
-		width = 4
+func (b *textBuffer) RenderLines(width, height int, focused bool) []string {
+	if width < 1 {
+		width = 1
 	}
 	if height < 1 {
 		height = 1
@@ -256,14 +231,14 @@ func (b *textBuffer) Render(width, height int, focused bool) []string {
 	for i := 0; i < height; i++ {
 		idx := start + i
 		if idx >= len(b.lines) {
-			lines = append(lines, strings.Repeat(" ", width))
+			lines = append(lines, "")
 			continue
 		}
 		text := string(b.lines[idx])
 		if focused && idx == b.row {
 			text = withCursor(text, b.col)
 		}
-		lines = append(lines, pad(text, width))
+		lines = append(lines, text)
 	}
 	return lines
 }
@@ -287,105 +262,9 @@ func withCursor(text string, col int) string {
 	return string(out)
 }
 
-func displayModelValue(path string, models []config.DiscoveredModel) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return ""
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
-	for _, model := range models {
-		if model.Path == path {
-			return model.DisplayName
-		}
-	}
-	name := filepath.Base(path)
-	return strings.TrimSuffix(name, filepath.Ext(name))
-}
-
-func resolveModelPath(input string, models []config.DiscoveredModel) (string, error) {
-	value := strings.TrimSpace(input)
-	if value == "" {
-		return "", errors.New("model name is required")
-	}
-
-	if looksLikePath(value) {
-		return value, nil
-	}
-
-	matches := exactModelMatches(models, value)
-	switch len(matches) {
-	case 0:
-		return "", errors.New("model name did not match any discovered GGUF")
-	case 1:
-		return matches[0].Path, nil
-	default:
-		return "", errors.New("model name matches multiple discovered GGUF files; type a more specific name")
-	}
-}
-
-func exactModelMatches(models []config.DiscoveredModel, input string) []config.DiscoveredModel {
-	value := strings.TrimSpace(strings.ToLower(input))
-	if value == "" {
-		return nil
-	}
-	var matches []config.DiscoveredModel
-	for _, model := range models {
-		base := strings.ToLower(filepath.Base(model.Path))
-		display := strings.ToLower(model.DisplayName)
-		if value == display || value == base || value == strings.TrimSuffix(base, filepath.Ext(base)) {
-			matches = append(matches, model)
-		}
-	}
-	return matches
-}
-
-func modelSuggestionNames(models []config.DiscoveredModel, query string, limit int) []string {
-	items := matchingModels(models, query, limit)
-	if len(items) == 0 {
-		return nil
-	}
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		if _, ok := seen[item.DisplayName]; ok {
-			continue
-		}
-		seen[item.DisplayName] = struct{}{}
-		out = append(out, item.DisplayName)
-	}
-	slices.SortFunc(out, func(a, b string) int {
-		return strings.Compare(strings.ToLower(a), strings.ToLower(b))
-	})
-	if limit > 0 && len(out) > limit {
-		return out[:limit]
-	}
-	return out
-}
-
-func matchingModels(models []config.DiscoveredModel, query string, limit int) []config.DiscoveredModel {
-	query = strings.TrimSpace(strings.ToLower(query))
-	if limit <= 0 {
-		limit = len(models)
-	}
-	var prefix []config.DiscoveredModel
-	var contains []config.DiscoveredModel
-	for _, model := range models {
-		display := strings.ToLower(model.DisplayName)
-		base := strings.ToLower(filepath.Base(model.Path))
-		if query == "" || strings.HasPrefix(display, query) || strings.HasPrefix(base, query) {
-			prefix = append(prefix, model)
-			continue
-		}
-		if strings.Contains(display, query) || strings.Contains(base, query) {
-			contains = append(contains, model)
-		}
-	}
-	out := append(prefix, contains...)
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
-}
-
-func looksLikePath(value string) bool {
-	return strings.Contains(value, `/`) || strings.Contains(value, `\`) || strings.HasSuffix(strings.ToLower(value), ".gguf")
+	return b
 }

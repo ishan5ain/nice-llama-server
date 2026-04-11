@@ -1,0 +1,101 @@
+package tui
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/charmbracelet/x/ansi"
+
+	"nice-llama-server/internal/config"
+)
+
+func TestHeaderRespectsFiveLineCap(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.width = 100
+	m.snapshot = config.Snapshot{
+		Bookmarks: []config.Bookmark{{ID: "1", Name: "Gemma"}},
+		Models: []config.DiscoveredModel{{
+			Path:        "/models/gemma.gguf",
+			DisplayName: "gemma-3-4b-it-Q4_K_M",
+			GroupKey:    "gemma-3-4b-it-Q4_K_M",
+		}},
+		Config: config.Config{ModelRoots: []string{"/models"}},
+		Runtime: config.RuntimeState{
+			Status: config.StatusReady,
+			Host:   "127.0.0.1",
+			Port:   8080,
+		},
+	}
+
+	header := ansi.Strip(m.renderHeader(100))
+	if lines := strings.Count(header, "\n") + 1; lines != headerPanelHeight {
+		t.Fatalf("unexpected header height: got %d want %d\n%s", lines, headerPanelHeight, header)
+	}
+}
+
+func TestFooterChangesByContext(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	if line := ansi.Strip(m.footerLine()); !strings.Contains(line, "logs") {
+		t.Fatalf("bookmark footer should mention logs toggle: %q", line)
+	}
+	if line := ansi.Strip(m.footerLine()); strings.Contains(line, "Enter save") {
+		t.Fatalf("footer should no longer advertise enter as save: %q", line)
+	}
+
+	m.bottomView = bottomViewLogs
+	if line := ansi.Strip(m.footerLine()); !strings.Contains(line, "bookmarks") {
+		t.Fatalf("log footer should mention bookmarks toggle: %q", line)
+	}
+}
+
+func TestFocusedBookmarkNameRendersCursor(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailName
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+
+	rendered := ansi.Strip(strings.Join(m.renderDetailLines(50, 10), "\n"))
+	if !strings.Contains(rendered, "█") {
+		t.Fatalf("expected visible cursor in focused bookmark name field: %q", rendered)
+	}
+}
+
+func TestToggleViewDoesNotSetShowingStatusMessage(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.toggleBottomView()
+	if got := m.messageLine(); got != "" {
+		t.Fatalf("toggle should not set a showing message, got %q", got)
+	}
+}
+
+func TestRenderLogViewUsesBottomContainerWidth(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.bottomView = bottomViewLogs
+	m.width = 90
+	m.height = 24
+	m.logs = []config.LogEntry{{
+		Seq:    1,
+		TS:     time.Unix(0, 0),
+		Stream: "stdout",
+		Line:   "server started",
+	}}
+
+	rendered := ansi.Strip(m.renderBottom(90, 12))
+	if !strings.Contains(rendered, "Runtime Logs") {
+		t.Fatalf("expected log title in log view: %q", rendered)
+	}
+	if strings.Contains(rendered, "Bookmark Detail") {
+		t.Fatalf("log view should not render bookmark detail panel")
+	}
+}

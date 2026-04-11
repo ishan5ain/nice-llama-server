@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,14 +19,54 @@ const (
 	maxVisibleLogs    = 2000
 )
 
+type bottomView int
+
+const (
+	bottomViewBookmarks bottomView = iota
+	bottomViewLogs
+)
+
+type focusArea int
+
+const (
+	focusModelList focusArea = iota
+	focusDetailName
+	focusDetailArgs
+)
+
+type listItemKind int
+
+const (
+	listItemModelGroup listItemKind = iota
+	listItemBookmark
+)
+
+type listItem struct {
+	kind       listItemKind
+	groupKey   string
+	modelPath  string
+	label      string
+	bookmarkID string
+	degraded   bool
+}
+
+func (i listItem) key() string {
+	if i.kind == listItemBookmark {
+		return "bookmark:" + i.bookmarkID
+	}
+	return "group:" + i.modelPath
+}
+
 type model struct {
 	ctx           context.Context
 	client        *controller.Client
+	styles        styles
 	width         int
 	height        int
-	showLogs      bool
+	bottomView    bottomView
+	focus         focusArea
 	snapshot      config.Snapshot
-	selectedID    string
+	selectedKey   string
 	logs          []config.LogEntry
 	lastSeq       int64
 	stateReady    bool
@@ -46,10 +87,12 @@ type logsMsg struct {
 }
 
 type actionMsg struct {
-	snapshot   config.Snapshot
-	selectedID string
-	note       string
-	err        error
+	snapshot    config.Snapshot
+	selectedKey string
+	note        string
+	err         error
+	clearEditor bool
+	focus       focusArea
 }
 
 type pollStateMsg struct{}
@@ -57,11 +100,13 @@ type pollLogsMsg struct{}
 
 func newModel(ctx context.Context, client *controller.Client) *model {
 	return &model{
-		ctx:      ctx,
-		client:   client,
-		width:    100,
-		height:   34,
-		showLogs: true,
+		ctx:        ctx,
+		client:     client,
+		styles:     newStyles(),
+		width:      100,
+		height:     34,
+		bottomView: bottomViewBookmarks,
+		focus:      focusModelList,
 	}
 }
 
@@ -110,12 +155,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errorMessage = ""
 		m.flashMessage = msg.note
 		m.snapshot = msg.snapshot
-		m.selectedID = msg.selectedID
+		if msg.selectedKey != "" {
+			m.selectedKey = msg.selectedKey
+		}
+		if msg.clearEditor {
+			m.editor = nil
+			m.focus = msg.focus
+			m.confirmDelete = false
+		}
 		m.syncSelection()
-		m.confirmDelete = false
-		m.editor = nil
 		if m.snapshot.Runtime.Status == config.StatusLoading || m.snapshot.Runtime.Status == config.StatusReady || m.snapshot.Runtime.Status == config.StatusFailed {
-			return m, tea.Batch(fetchLogsCmd(m.ctx, m.client, 0))
+			return m, fetchLogsCmd(m.ctx, m.client, 0)
 		}
 		return m, nil
 	case pollStateMsg:
@@ -135,19 +185,21 @@ func (m *model) View() tea.View {
 
 func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case msg.Keystroke() == "ctrl+c", msg.Text == "q":
+	case msg.Keystroke() == "ctrl+q":
 		return m, tea.Quit
+	case msg.Text == "/":
+		m.toggleBottomView()
+		return m, nil
 	}
 
 	if m.confirmDelete {
 		switch {
 		case strings.EqualFold(msg.Text, "y"):
-			selected := m.selectedBookmark()
-			if selected == nil {
-				m.confirmDelete = false
-				return m, nil
+			if selected := m.selectedBookmark(); selected != nil {
+				return m, deleteBookmarkCmd(m.ctx, m.client, selected.ID)
 			}
-			return m, deleteBookmarkCmd(m.ctx, m.client, selected.ID)
+			m.confirmDelete = false
+			return m, nil
 		case strings.EqualFold(msg.Text, "n"), msg.Keystroke() == "esc":
 			m.confirmDelete = false
 			return m, nil
@@ -156,57 +208,23 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.editor != nil {
-		return m.handleEditorKey(msg)
+	if m.bottomView == bottomViewLogs {
+		return m.handleLogKey(msg)
 	}
 
+	if m.focus == focusModelList {
+		return m.handleListKey(msg)
+	}
+	return m.handleDetailKey(msg)
+}
+
+func (m *model) handleLogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case msg.Text == "n":
-		m.editor = newBookmarkEditor(config.Bookmark{}, m.snapshot.Models, true)
-		m.errorMessage = ""
-		m.flashMessage = "creating a new bookmark"
-		return m, nil
-	case msg.Text == "c":
-		if selected := m.selectedBookmark(); selected != nil {
-			clone := *selected
-			clone.ID = ""
-			clone.Name = clone.Name + " Copy"
-			m.editor = newBookmarkEditor(clone, m.snapshot.Models, true)
-			m.flashMessage = "cloning bookmark"
-		}
-		return m, nil
-	case msg.Text == "e":
-		if selected := m.selectedBookmark(); selected != nil {
-			copy := *selected
-			m.editor = newBookmarkEditor(copy, m.snapshot.Models, false)
-			m.flashMessage = "editing bookmark"
-		}
-		return m, nil
-	case msg.Text == "d":
-		if m.selectedBookmark() != nil {
-			m.confirmDelete = true
-		}
-		return m, nil
-	case msg.Keystroke() == "up", msg.Text == "k":
-		m.moveSelection(-1)
-		return m, nil
-	case msg.Keystroke() == "down", msg.Text == "j":
-		m.moveSelection(1)
-		return m, nil
-	case msg.Text == "r":
-		return m, rescanCmd(m.ctx, m.client, nil, nil)
-	case msg.Text == "g":
-		m.showLogs = !m.showLogs
-		if m.showLogs {
-			m.flashMessage = "log panel shown"
-		} else {
-			m.flashMessage = "log panel hidden"
-		}
-		return m, nil
 	case isLoadShortcut(msg):
 		if selected := m.selectedBookmark(); selected != nil {
 			return m, loadBookmarkCmd(m.ctx, m.client, selected.ID)
 		}
+		m.errorMessage = "select a bookmark to load"
 		return m, nil
 	case isUnloadShortcut(msg):
 		return m, unloadCmd(m.ctx, m.client)
@@ -215,30 +233,110 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m *model) handleEditorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Keystroke() == "up":
+		m.moveSelection(-1)
+		return m, nil
+	case msg.Keystroke() == "down":
+		m.moveSelection(1)
+		return m, nil
+	case msg.Text == "e":
+		if err := m.beginEditSelected(); err != nil {
+			m.errorMessage = err.Error()
+		}
+		return m, nil
+	case msg.Text == "n":
+		editor, err := m.newBookmarkForCurrentGroup()
+		if err != nil {
+			m.errorMessage = err.Error()
+			return m, nil
+		}
+		m.editor = editor
+		m.focus = focusDetailName
+		m.flashMessage = "creating bookmark"
+		m.errorMessage = ""
+		return m, nil
+	case msg.Text == "c":
+		editor, err := m.cloneSelectedBookmark()
+		if err != nil {
+			m.errorMessage = err.Error()
+			return m, nil
+		}
+		m.editor = editor
+		m.focus = focusDetailName
+		m.flashMessage = "cloning bookmark"
+		m.errorMessage = ""
+		return m, nil
+	case msg.Text == "d":
+		if m.selectedBookmark() != nil {
+			m.confirmDelete = true
+		} else {
+			m.errorMessage = "select a bookmark to delete"
+		}
+		return m, nil
+	case msg.Text == "r":
+		return m, rescanCmd(m.ctx, m.client, nil, nil)
+	case isLoadShortcut(msg):
+		if selected := m.selectedBookmark(); selected != nil {
+			return m, loadBookmarkCmd(m.ctx, m.client, selected.ID)
+		}
+		m.errorMessage = "select a bookmark to load"
+		return m, nil
+	case isUnloadShortcut(msg):
+		return m, unloadCmd(m.ctx, m.client)
+	default:
+		return m, nil
+	}
+}
+
+func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.editor == nil {
+		m.focus = focusModelList
+		return m, nil
+	}
+
 	switch {
 	case msg.Keystroke() == "esc":
 		m.editor = nil
+		m.focus = focusModelList
 		m.errorMessage = ""
-		return m, nil
-	case msg.Keystroke() == "tab":
-		if m.editor.focus == 1 && m.editor.AutocompleteModel(m.snapshot.Models) {
-			m.errorMessage = ""
-		}
-		return m, nil
-	case msg.Keystroke() == "ctrl+n":
-		m.editor.NextFocus()
-		return m, nil
-	case msg.Keystroke() == "ctrl+p":
-		m.editor.PrevFocus()
+		m.flashMessage = "discarded changes"
 		return m, nil
 	case msg.Keystroke() == "ctrl+s":
-		return m.saveEditor(false)
-	case msg.Keystroke() == "ctrl+l":
-		return m.saveEditor(true)
+		return m.saveEditor()
+	case isLoadShortcut(msg):
+		if m.editor.isNew {
+			m.errorMessage = "save the new bookmark before loading it"
+			return m, nil
+		}
+		if m.editor.Dirty() {
+			m.errorMessage = "save or discard changes before loading"
+			return m, nil
+		}
+		return m, loadBookmarkCmd(m.ctx, m.client, m.editor.originalID)
+	case isUnloadShortcut(msg):
+		return m, unloadCmd(m.ctx, m.client)
+	case msg.Keystroke() == "up":
+		return m.handleEditorUp()
+	case msg.Keystroke() == "down":
+		return m.handleEditorDown()
+	case msg.Keystroke() == "enter":
+		switch m.focus {
+		case focusDetailName:
+			m.focus = focusDetailArgs
+		case focusDetailArgs:
+			m.editor.args.InsertNewLine()
+		}
+		m.errorMessage = ""
+		return m, nil
 	default:
-		buffer := m.editor.Current()
+		buffer := m.currentEditorBuffer()
+		if buffer == nil {
+			return m, nil
+		}
 		if handleBufferKey(buffer, msg.Keystroke()) {
+			m.errorMessage = ""
 			return m, nil
 		}
 		if text := printableText(msg); text != "" {
@@ -250,35 +348,72 @@ func (m *model) handleEditorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m *model) saveEditor(andLoad bool) (tea.Model, tea.Cmd) {
-	bookmark, err := m.editor.Bookmark(m.snapshot.Models)
-	if err != nil {
-		m.errorMessage = err.Error()
+func (m *model) handleEditorUp() (tea.Model, tea.Cmd) {
+	switch m.focus {
+	case focusDetailName:
+		return m, nil
+	case focusDetailArgs:
+		if !m.editor.args.MoveUp() {
+			m.focus = focusDetailName
+		}
+	}
+	return m, nil
+}
+
+func (m *model) handleEditorDown() (tea.Model, tea.Cmd) {
+	switch m.focus {
+	case focusDetailName:
+		m.focus = focusDetailArgs
+	case focusDetailArgs:
+		_ = m.editor.args.MoveDown()
+	}
+	return m, nil
+}
+
+func (m *model) saveEditor() (tea.Model, tea.Cmd) {
+	if m.editor == nil {
 		return m, nil
 	}
-	return m, saveBookmarkCmd(m.ctx, m.client, bookmark, m.editor.isNew, andLoad)
+	bookmark := m.editor.Bookmark()
+	return m, saveBookmarkCmd(m.ctx, m.client, bookmark, m.editor.isNew, false)
+}
+
+func (m *model) currentEditorBuffer() *textBuffer {
+	if m.editor == nil {
+		return nil
+	}
+	switch m.focus {
+	case focusDetailName:
+		return &m.editor.name
+	case focusDetailArgs:
+		return &m.editor.args
+	default:
+		return nil
+	}
+}
+
+func (m *model) toggleBottomView() {
+	if m.bottomView == bottomViewBookmarks {
+		m.bottomView = bottomViewLogs
+		return
+	}
+	m.bottomView = bottomViewBookmarks
 }
 
 func handleBufferKey(buffer *textBuffer, key string) bool {
 	switch key {
 	case "left":
-		buffer.MoveLeft()
+		return buffer.MoveLeft()
 	case "right":
-		buffer.MoveRight()
-	case "up":
-		buffer.MoveUp()
-	case "down":
-		buffer.MoveDown()
+		return buffer.MoveRight()
 	case "home":
-		buffer.MoveHome()
+		return buffer.MoveHome()
 	case "end":
-		buffer.MoveEnd()
+		return buffer.MoveEnd()
 	case "backspace":
 		buffer.Backspace()
 	case "delete":
 		buffer.Delete()
-	case "enter":
-		buffer.InsertNewLine()
 	default:
 		return false
 	}
@@ -286,10 +421,6 @@ func handleBufferKey(buffer *textBuffer, key string) bool {
 }
 
 func printableText(msg tea.KeyPressMsg) string {
-	switch msg.Keystroke() {
-	case "":
-		return ""
-	}
 	if msg.Text != "" {
 		return msg.Text
 	}
@@ -304,47 +435,196 @@ func printableText(msg tea.KeyPressMsg) string {
 	return ""
 }
 
+func (m *model) listItems() []listItem {
+	bookmarksByGroup := map[string][]config.Bookmark{}
+	for _, bookmark := range m.snapshot.Bookmarks {
+		bookmarksByGroup[bookmark.ModelPath] = append(bookmarksByGroup[bookmark.ModelPath], bookmark)
+	}
+
+	items := make([]listItem, 0, len(m.snapshot.Models)+len(m.snapshot.Bookmarks))
+	seenGroups := map[string]struct{}{}
+	for _, model := range m.snapshot.Models {
+		if _, ok := seenGroups[model.Path]; ok {
+			continue
+		}
+		seenGroups[model.Path] = struct{}{}
+		items = append(items, listItem{
+			kind:      listItemModelGroup,
+			groupKey:  model.GroupKey,
+			modelPath: model.Path,
+			label:     model.DisplayName,
+		})
+		for _, bookmark := range bookmarksByGroup[model.Path] {
+			items = append(items, listItem{
+				kind:       listItemBookmark,
+				groupKey:   bookmark.GroupKey,
+				modelPath:  bookmark.ModelPath,
+				label:      bookmark.Name,
+				bookmarkID: bookmark.ID,
+			})
+		}
+		delete(bookmarksByGroup, model.Path)
+	}
+
+	leftoverGroups := make([]string, 0, len(bookmarksByGroup))
+	for modelPath := range bookmarksByGroup {
+		leftoverGroups = append(leftoverGroups, modelPath)
+	}
+	slices.Sort(leftoverGroups)
+	for _, modelPath := range leftoverGroups {
+		groupLabel := displayNameFromPath(modelPath)
+		groupKey := config.DeriveGroupKey(modelPath)
+		if len(bookmarksByGroup[modelPath]) > 0 && bookmarksByGroup[modelPath][0].GroupKey != "" {
+			groupKey = bookmarksByGroup[modelPath][0].GroupKey
+		}
+		items = append(items, listItem{
+			kind:      listItemModelGroup,
+			groupKey:  groupKey,
+			modelPath: modelPath,
+			label:     groupLabel,
+			degraded:  true,
+		})
+		for _, bookmark := range bookmarksByGroup[modelPath] {
+			items = append(items, listItem{
+				kind:       listItemBookmark,
+				groupKey:   bookmark.GroupKey,
+				modelPath:  bookmark.ModelPath,
+				label:      bookmark.Name,
+				bookmarkID: bookmark.ID,
+				degraded:   true,
+			})
+		}
+	}
+
+	return items
+}
+
 func (m *model) syncSelection() {
-	if len(m.snapshot.Bookmarks) == 0 {
-		m.selectedID = ""
+	items := m.listItems()
+	if len(items) == 0 {
+		m.selectedKey = ""
 		return
 	}
-	for _, item := range m.snapshot.Bookmarks {
-		if item.ID == m.selectedID {
+
+	if m.selectedKey != "" {
+		for _, item := range items {
+			if item.key() == m.selectedKey {
+				return
+			}
+		}
+	}
+
+	for _, item := range items {
+		if item.kind == listItemBookmark {
+			m.selectedKey = item.key()
 			return
 		}
 	}
-	m.selectedID = m.snapshot.Bookmarks[0].ID
+	m.selectedKey = items[0].key()
 }
 
 func (m *model) moveSelection(delta int) {
-	if len(m.snapshot.Bookmarks) == 0 {
+	items := m.listItems()
+	if len(items) == 0 {
+		m.selectedKey = ""
 		return
 	}
-	idx := 0
-	for i := range m.snapshot.Bookmarks {
-		if m.snapshot.Bookmarks[i].ID == m.selectedID {
-			idx = i
+
+	index := 0
+	for i, item := range items {
+		if item.key() == m.selectedKey {
+			index = i
 			break
 		}
 	}
-	idx += delta
-	if idx < 0 {
-		idx = 0
+	index += delta
+	if index < 0 {
+		index = 0
 	}
-	if idx >= len(m.snapshot.Bookmarks) {
-		idx = len(m.snapshot.Bookmarks) - 1
+	if index >= len(items) {
+		index = len(items) - 1
 	}
-	m.selectedID = m.snapshot.Bookmarks[idx].ID
+	m.selectedKey = items[index].key()
+}
+
+func (m *model) selectedItem() (listItem, bool) {
+	for _, item := range m.listItems() {
+		if item.key() == m.selectedKey {
+			return item, true
+		}
+	}
+	return listItem{}, false
 }
 
 func (m *model) selectedBookmark() *config.Bookmark {
+	item, ok := m.selectedItem()
+	if !ok || item.kind != listItemBookmark {
+		return nil
+	}
 	for i := range m.snapshot.Bookmarks {
-		if m.snapshot.Bookmarks[i].ID == m.selectedID {
+		if m.snapshot.Bookmarks[i].ID == item.bookmarkID {
 			return &m.snapshot.Bookmarks[i]
 		}
 	}
 	return nil
+}
+
+func (m *model) currentGroupSelection() (listItem, bool) {
+	item, ok := m.selectedItem()
+	if ok {
+		if item.kind == listItemBookmark {
+			return listItem{
+				kind:      listItemModelGroup,
+				groupKey:  item.groupKey,
+				modelPath: item.modelPath,
+				label:     m.groupLabelForPath(item.modelPath),
+				degraded:  m.isMissingModelPath(item.modelPath),
+			}, true
+		}
+		return item, true
+	}
+
+	items := m.listItems()
+	for _, candidate := range items {
+		if candidate.kind == listItemModelGroup {
+			return candidate, true
+		}
+	}
+	return listItem{}, false
+}
+
+func (m *model) beginEditSelected() error {
+	selected := m.selectedBookmark()
+	if selected == nil {
+		return fmt.Errorf("select a bookmark to edit")
+	}
+	m.editor = newBookmarkEditor(*selected, false)
+	m.focus = focusDetailName
+	m.errorMessage = ""
+	return nil
+}
+
+func (m *model) newBookmarkForCurrentGroup() (*bookmarkEditor, error) {
+	group, ok := m.currentGroupSelection()
+	if !ok {
+		return nil, fmt.Errorf("no discovered models are available")
+	}
+	base := config.Bookmark{
+		ModelPath: group.modelPath,
+		GroupKey:  group.groupKey,
+	}
+	return newBookmarkEditor(base, true), nil
+}
+
+func (m *model) cloneSelectedBookmark() (*bookmarkEditor, error) {
+	selected := m.selectedBookmark()
+	if selected == nil {
+		return nil, fmt.Errorf("select a bookmark to clone")
+	}
+	clone := *selected
+	clone.ID = ""
+	clone.Name = clone.Name + " Copy"
+	return newBookmarkEditor(clone, true), nil
 }
 
 func fetchStateCmd(ctx context.Context, client *controller.Client) tea.Cmd {
@@ -402,7 +682,14 @@ func saveBookmarkCmd(ctx context.Context, client *controller.Client, b config.Bo
 		if andLoad && err == nil {
 			note = "bookmark saved and loading started"
 		}
-		return actionMsg{snapshot: snapshot, selectedID: saved.ID, note: note, err: err}
+		return actionMsg{
+			snapshot:    snapshot,
+			selectedKey: listItem{kind: listItemBookmark, bookmarkID: saved.ID}.key(),
+			note:        note,
+			err:         err,
+			clearEditor: err == nil,
+			focus:       focusModelList,
+		}
 	}
 }
 
@@ -415,7 +702,13 @@ func deleteBookmarkCmd(ctx context.Context, client *controller.Client, id string
 		if err == nil {
 			err = stateErr
 		}
-		return actionMsg{snapshot: snapshot, note: "bookmark deleted", err: err}
+		return actionMsg{
+			snapshot:    snapshot,
+			note:        "bookmark deleted",
+			err:         err,
+			clearEditor: err == nil,
+			focus:       focusModelList,
+		}
 	}
 }
 
@@ -428,7 +721,12 @@ func loadBookmarkCmd(ctx context.Context, client *controller.Client, id string) 
 		if err == nil {
 			err = stateErr
 		}
-		return actionMsg{snapshot: snapshot, selectedID: id, note: "model loaded", err: err}
+		return actionMsg{
+			snapshot:    snapshot,
+			selectedKey: listItem{kind: listItemBookmark, bookmarkID: id}.key(),
+			note:        "model loaded",
+			err:         err,
+		}
 	}
 }
 
@@ -441,7 +739,11 @@ func unloadCmd(ctx context.Context, client *controller.Client) tea.Cmd {
 		if err == nil {
 			err = stateErr
 		}
-		return actionMsg{snapshot: snapshot, note: "model unloaded", err: err}
+		return actionMsg{
+			snapshot: snapshot,
+			note:     "model unloaded",
+			err:      err,
+		}
 	}
 }
 
@@ -450,7 +752,11 @@ func rescanCmd(ctx context.Context, client *controller.Client, roots []string, b
 		reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		snapshot, err := client.Rescan(reqCtx, roots, bin)
-		return actionMsg{snapshot: snapshot, note: "model directories rescanned", err: err}
+		return actionMsg{
+			snapshot: snapshot,
+			note:     "model directories rescanned",
+			err:      err,
+		}
 	}
 }
 
@@ -474,12 +780,12 @@ func activeBookmarkName(snapshot config.Snapshot) string {
 }
 
 func runtimeSummary(snapshot config.Snapshot) string {
-	label := statusLabel(snapshot.Runtime)
+	label := strings.ToUpper(statusLabel(snapshot.Runtime))
 	name := activeBookmarkName(snapshot)
 	if name == "" {
-		return fmt.Sprintf("runtime: %s", label)
+		return label
 	}
-	return fmt.Sprintf("runtime: %s (%s)", label, name)
+	return fmt.Sprintf("%s · %s", label, name)
 }
 
 func isLoadShortcut(msg tea.KeyPressMsg) bool {
@@ -488,4 +794,36 @@ func isLoadShortcut(msg tea.KeyPressMsg) bool {
 
 func isUnloadShortcut(msg tea.KeyPressMsg) bool {
 	return msg.Text == "U" || msg.Keystroke() == "shift+u"
+}
+
+func (m *model) groupLabelForPath(modelPath string) string {
+	for _, model := range m.snapshot.Models {
+		if model.Path == modelPath {
+			return model.DisplayName
+		}
+	}
+	return displayNameFromPath(modelPath)
+}
+
+func (m *model) isMissingModelPath(modelPath string) bool {
+	for _, model := range m.snapshot.Models {
+		if model.Path == modelPath {
+			return false
+		}
+	}
+	return true
+}
+
+func displayNameFromPath(modelPath string) string {
+	name := modelPath
+	if idx := strings.LastIndexAny(name, `/\`); idx >= 0 && idx+1 < len(name) {
+		name = name[idx+1:]
+	}
+	if idx := strings.LastIndex(name, "."); idx > 0 {
+		name = name[:idx]
+	}
+	if strings.TrimSpace(name) == "" {
+		return "Unknown model"
+	}
+	return name
 }
