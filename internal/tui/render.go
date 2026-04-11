@@ -25,6 +25,9 @@ func (m *model) render() string {
 }
 
 func (m *model) renderHeader(width int) string {
+	bodyHeight := max(1, headerPanelHeight-m.styles.headerPanel.GetVerticalFrameSize())
+	bodyWidth := max(1, width-m.styles.headerPanel.GetHorizontalFrameSize()/2)
+
 	titleLine := lipgloss.JoinHorizontal(
 		lipgloss.Left,
 		m.styles.headerTitle.Render("Nice Llama Server"),
@@ -46,12 +49,14 @@ func (m *model) renderHeader(width int) string {
 		len(m.snapshot.Models),
 		len(m.snapshot.Config.ModelRoots),
 	))
-	statusLine := m.styles.headerMessage.Render(m.messageLine())
-
-	content := lipgloss.JoinVertical(lipgloss.Left, titleLine, statsLine, statusLine)
-
-	bodyHeight := max(1, headerPanelHeight-m.styles.headerPanel.GetVerticalFrameSize())
-	bodyWidth := max(1, width-m.styles.headerPanel.GetHorizontalFrameSize())
+	rows := []string{
+		crop(titleLine, bodyWidth),
+		crop(statsLine, bodyWidth),
+	}
+	if status := strings.TrimSpace(m.messageLine()); status != "" {
+		rows = append(rows, crop(m.styles.headerMessage.Render(status), bodyWidth))
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, clampStyledLines(rows, bodyHeight)...)
 	return m.styles.headerPanel.
 		Width(bodyWidth).
 		Height(bodyHeight).
@@ -62,24 +67,22 @@ func (m *model) renderBottom(width, height int) string {
 	if m.bottomView == bottomViewLogs {
 		return m.renderLogView(width, height)
 	}
-	return m.renderBookmarkEditorView(width, height)
+	return m.renderBookmarkEditorView(width+6, height)
 }
 
 func (m *model) renderBookmarkEditorView(width, height int) string {
 	gap := 1
-	leftWidth := max(28, width*2/5)
-	if leftWidth > width-24 {
-		leftWidth = max(24, width/2)
-	}
-	rightWidth := max(20, width-leftWidth-gap)
+	leftWidth, rightWidth := splitBookmarkEditorWidths(width, gap)
 
 	left := m.renderModelListPanel(leftWidth, height)
 	right := m.renderDetailPanel(rightWidth, height)
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+	joined := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+	return fitBox(joined, width, height)
 }
 
 func (m *model) renderModelListPanel(width, height int) string {
 	items := m.renderListLines(max(1, width-m.styles.panelBase.GetHorizontalFrameSize()), max(1, height-m.styles.panelBase.GetVerticalFrameSize()))
+	// items := m.renderListLines(max(1, width), max(1, height-m.styles.panelBase.GetVerticalFrameSize()))
 	content := lipgloss.JoinVertical(lipgloss.Left, items...)
 	style := m.panelStyleFor(focusModelList)
 	return style.Width(max(1, width-style.GetHorizontalFrameSize())).
@@ -157,8 +160,9 @@ func (m *model) renderListLines(width, height int) []string {
 }
 
 func (m *model) renderDetailLines(width, height int) []string {
-	title := m.styles.panelTitle.Render("Bookmark Detail")
-	lines := []string{title}
+	// title := m.styles.panelTitle.Render("Bookmark Detail")
+	// lines := []string{title}
+	lines := []string{}
 
 	if m.focus == focusModelList || m.editor == nil {
 		selected := m.selectedBookmark()
@@ -178,12 +182,12 @@ func (m *model) renderDetailLines(width, height int) []string {
 		}
 
 		lines = append(lines, m.renderField("Bookmark Name", selected.Name, false, width)...)
-		lines = append(lines, "")
+		// lines = append(lines, "")
 		argsLines := strings.Split(strings.TrimSpace(selected.ArgsText), "\n")
 		if len(argsLines) == 1 && argsLines[0] == "" {
 			argsLines = []string{"(empty)"}
 		}
-		lines = append(lines, m.renderFieldBlock("Args", argsLines, false, width, max(4, height-len(lines)-2))...)
+		lines = append(lines, m.renderFieldBlock("Args", argsLines, false, width, max(4, height-len(lines)-3))...)
 		return clampStyledLines(lines, height)
 	}
 
@@ -193,7 +197,7 @@ func (m *model) renderDetailLines(width, height int) []string {
 	} else {
 		lines = append(lines, m.renderField("Bookmark Name", nameValue, false, width)...)
 	}
-	lines = append(lines, "")
+	// lines = append(lines, "")
 
 	argsHeight := max(4, height-len(lines)-1)
 	lines = append(lines, m.renderFieldBlock("Args", m.editor.args.RenderLines(width, argsHeight, m.focus == focusDetailArgs), m.focus == focusDetailArgs, width, argsHeight)...)
@@ -333,6 +337,61 @@ func clampStyledLines(lines []string, height int) []string {
 		lines = append(lines, "")
 	}
 	return lines
+}
+
+func fitBox(value string, width, height int) string {
+	lines := strings.Split(value, "\n")
+	for i := range lines {
+		lines[i] = padToWidth(crop(lines[i], width), width)
+	}
+	return strings.Join(clampStyledLines(lines, height), "\n")
+}
+
+func padToWidth(value string, width int) string {
+	missing := width - lipgloss.Width(value)
+	if missing <= 0 {
+		return value
+	}
+	return value + strings.Repeat(" ", missing)
+}
+
+func splitBookmarkEditorWidths(width, gap int) (left int, right int) {
+	available := max(1, width-gap)
+	if available == 1 {
+		return 1, 0
+	}
+
+	const (
+		minLeft  = 24
+		minRight = 20
+	)
+
+	preferredLeft := available * 2 / 5
+	left = preferredLeft
+
+	if available >= minLeft+minRight {
+		if left < minLeft {
+			left = minLeft
+		}
+		maxLeft := available - minRight
+		if left > maxLeft {
+			left = maxLeft
+		}
+	} else {
+		if left < 1 {
+			left = 1
+		}
+		if left >= available {
+			left = available / 2
+		}
+	}
+
+	right = available - left
+	if right < 1 {
+		right = 1
+		left = available - right
+	}
+	return left, right
 }
 
 func hostOrDefault(host string) string {

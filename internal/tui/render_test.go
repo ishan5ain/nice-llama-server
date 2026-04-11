@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"nice-llama-server/internal/config"
@@ -34,6 +35,9 @@ func TestHeaderRespectsFiveLineCap(t *testing.T) {
 	header := ansi.Strip(m.renderHeader(100))
 	if lines := strings.Count(header, "\n") + 1; lines != headerPanelHeight {
 		t.Fatalf("unexpected header height: got %d want %d\n%s", lines, headerPanelHeight, header)
+	}
+	if !strings.Contains(header, "Nice Llama Server") {
+		t.Fatalf("expected header title to remain visible: %q", header)
 	}
 }
 
@@ -97,5 +101,63 @@ func TestRenderLogViewUsesBottomContainerWidth(t *testing.T) {
 	}
 	if strings.Contains(rendered, "Bookmark Detail") {
 		t.Fatalf("log view should not render bookmark detail panel")
+	}
+}
+
+func TestBookmarkEditorViewFillsExactBottomRegion(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.bottomView = bottomViewBookmarks
+	m.snapshot.Models = []config.DiscoveredModel{
+		{
+			Path:        "/models/gemma.gguf",
+			DisplayName: "gemma-3-4b-it-Q4_K_M",
+			GroupKey:    "gemma",
+		},
+	}
+	m.snapshot.Bookmarks = []config.Bookmark{
+		{
+			ID:        "1",
+			Name:      "Gemma",
+			ModelPath: "/models/gemma.gguf",
+			GroupKey:  "gemma",
+		},
+	}
+	m.selectedKey = listItem{kind: listItemBookmark, bookmarkID: "1"}.key()
+
+	rendered := m.renderBookmarkEditorView(90, 14)
+	if got := lipgloss.Width(rendered); got != 90 {
+		t.Fatalf("unexpected bookmark editor width: got %d want 90", got)
+	}
+	if got := lipgloss.Height(rendered); got != 14 {
+		t.Fatalf("unexpected bookmark editor height: got %d want 14", got)
+	}
+}
+
+func TestBookmarkEditorViewFillsOnNarrowWidths(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	rendered := m.renderBookmarkEditorView(60, 10)
+	if got := lipgloss.Width(rendered); got != 60 {
+		t.Fatalf("unexpected bookmark editor width on narrow layout: got %d want 60", got)
+	}
+	if got := lipgloss.Height(rendered); got != 10 {
+		t.Fatalf("unexpected bookmark editor height on narrow layout: got %d want 10", got)
+	}
+}
+
+func TestHeaderOmitsEmptyStatusRowContent(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.width = 100
+	header := ansi.Strip(m.renderHeader(100))
+	if strings.Contains(header, "Error ·") {
+		t.Fatalf("did not expect error content in empty header: %q", header)
+	}
+	if !strings.Contains(header, "Nice Llama Server") {
+		t.Fatalf("expected title in header: %q", header)
 	}
 }

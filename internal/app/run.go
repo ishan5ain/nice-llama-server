@@ -16,11 +16,13 @@ import (
 )
 
 type cliOptions struct {
-	mode           string
-	stateDir       string
-	controllerURL  string
-	llamaServerBin string
-	modelRoots     []string
+	mode                string
+	stateDir            string
+	controllerURL       string
+	controllerToken     string
+	printControllerInfo bool
+	llamaServerBin      string
+	modelRoots          []string
 }
 
 func Run(ctx context.Context, argv []string) error {
@@ -49,8 +51,11 @@ func parseArgs(argv []string) (cliOptions, error) {
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&opts.stateDir, "state-dir", "", "override the state directory")
 	fs.StringVar(&opts.llamaServerBin, "llama-server-bin", "", "path to llama-server executable")
-	if opts.mode != "controller" {
+	if opts.mode == "controller" {
+		fs.BoolVar(&opts.printControllerInfo, "print-controller-info", false, "print controller URL and token after startup")
+	} else {
 		fs.StringVar(&opts.controllerURL, "controller-url", "", "connect to a running controller directly")
+		fs.StringVar(&opts.controllerToken, "controller-token", "", "authenticate to the controller directly")
 	}
 	if err := fs.Parse(args); err != nil {
 		return cliOptions{}, err
@@ -64,11 +69,31 @@ func runControllerMode(ctx context.Context, opts cliOptions) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	return controller.Run(ctx, controller.Options{
+	svc, err := controller.NewService(controller.Options{
 		StateDir:       opts.stateDir,
 		LlamaServerBin: opts.llamaServerBin,
 		ModelRoots:     opts.modelRoots,
 	})
+	if err != nil {
+		return err
+	}
+
+	ln, err := controller.ListenLoopback()
+	if err != nil {
+		return err
+	}
+	info, err := svc.Start(ln)
+	if err != nil {
+		return err
+	}
+	if opts.printControllerInfo {
+		fmt.Fprint(os.Stdout, controllerInfoLine(info))
+	}
+
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return svc.Shutdown(shutdownCtx)
 }
 
 func runTUIMode(ctx context.Context, opts cliOptions) error {
@@ -79,11 +104,9 @@ func runTUIMode(ctx context.Context, opts cliOptions) error {
 
 	var info config.ControllerInfo
 	if opts.controllerURL != "" {
-		info.URL = opts.controllerURL
-		if saved, err := store.LoadControllerInfo(); err == nil {
-			if saved.URL == info.URL {
-				info.Token = saved.Token
-			}
+		info, err = resolveControllerInfo(store, opts)
+		if err != nil {
+			return err
 		}
 	} else {
 		info, err = ensureController(ctx, store, opts)
@@ -110,6 +133,27 @@ func runTUIMode(ctx context.Context, opts cliOptions) error {
 	return tui.Run(ctx, tui.Options{
 		Client: client,
 	})
+}
+
+func resolveControllerInfo(store *config.Store, opts cliOptions) (config.ControllerInfo, error) {
+	if opts.controllerURL == "" {
+		return config.ControllerInfo{}, errors.New("controller URL is required")
+	}
+
+	info := config.ControllerInfo{
+		URL:   opts.controllerURL,
+		Token: opts.controllerToken,
+	}
+	if info.Token != "" {
+		return info, nil
+	}
+
+	if saved, err := store.LoadControllerInfo(); err == nil && saved.URL == info.URL && saved.Token != "" {
+		info.Token = saved.Token
+		return info, nil
+	}
+
+	return config.ControllerInfo{}, fmt.Errorf("controller token required for %s; provide --controller-token or use a matching local controller.json", opts.controllerURL)
 }
 
 func ensureController(ctx context.Context, store *config.Store, opts cliOptions) (config.ControllerInfo, error) {
@@ -175,4 +219,8 @@ func wrapErr(message string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s: %w", message, err)
+}
+
+func controllerInfoLine(info config.ControllerInfo) string {
+	return fmt.Sprintf("url=%s token=%s\n", info.URL, info.Token)
 }

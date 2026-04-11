@@ -34,3 +34,5 @@ go.work
 .vscode/
 *.swp
 *.swo
+
+.gocache/

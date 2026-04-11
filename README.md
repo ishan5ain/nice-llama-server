@@ -201,6 +201,7 @@ Supported flags:
 - `--llama-server-bin <path>`: override the `llama-server` executable path
 - `--state-dir <path>`: override the app state directory
 - `--controller-url <url>`: attach directly to an existing controller
+- `--controller-token <token>`: authenticate to an existing controller directly
 
 ## Running Only the Controller
 
@@ -216,26 +217,35 @@ On Windows:
 
 ```powershell
 .\nice-llama-server.exe controller `
+  --print-controller-info `
   --llama-server-bin "C:\path\to\llama-server.exe" `
   "C:\path\to\models"
 ```
 
 That starts only the controller. No TUI is opened in this mode.
 
+If you pass `--print-controller-info`, the controller prints a one-line attach hint after startup:
+
+```text
+url=http://127.0.0.1:51234 token=your-token
+```
+
 ## Running Only the TUI
 
 To run only the TUI, point it at an already running controller:
 
 ```bash
-./dist/nice-llama-server --controller-url http://127.0.0.1:51234
+./dist/nice-llama-server \
+  --controller-url http://127.0.0.1:51234 \
+  --controller-token your-token
 ```
 
 This works when:
 - a controller is already running
 - the TUI can reach that controller URL
-- the TUI also has the matching controller token
+- the TUI also has a usable controller token
 
-The token is stored in `controller.json` in the app state directory.
+If `--controller-token` is omitted, the app will still try to load a matching token from local `controller.json` when the stored URL matches exactly. If that fails, startup now exits with a clear error instead of trying an unauthenticated connection.
 
 ## State Storage
 
@@ -262,7 +272,7 @@ This is possible, but there is an important constraint: the controller binds to 
 To do this today, you need:
 - a controller running on the remote host
 - an SSH tunnel from your local machine to the remote controller port
-- a local state dir containing a matching `controller.json` with the remote controller token
+- the remote controller token
 
 ### Recommended simple workflow
 
@@ -277,61 +287,28 @@ The simplest validated workflow is still:
 
 ```powershell
 .\nice-llama-server.exe controller `
+  --print-controller-info `
   --llama-server-bin "C:\path\to\llama-server.exe" `
   "C:\path\to\models"
 ```
 
-2. Read the remote `controller.json` from the remote state dir.
+2. Note the printed controller URL and token, or read them from the remote `%AppData%\nice-llama-server\controller.json`.
 
-Windows default:
-
-```text
-%AppData%\nice-llama-server\controller.json
-```
-
-3. Note the controller URL and token.
-
-Example:
-
-```json
-{
-  "url": "http://127.0.0.1:51234",
-  "token": "your-token"
-}
-```
-
-4. Create an SSH tunnel from your local machine to the remote controller port:
+3. Create an SSH tunnel from your local machine to the remote controller port:
 
 ```bash
 ssh -L 51234:127.0.0.1:51234 user@remote-host
 ```
 
-5. Create a local temporary state dir and place a `controller.json` in it that matches the tunneled URL and token:
-
-```bash
-mkdir -p /tmp/nls-remote
-```
-
-Example local `/tmp/nls-remote/controller.json`:
-
-```json
-{
-  "url": "http://127.0.0.1:51234",
-  "token": "your-token"
-}
-```
-
-6. Start only the local TUI against that tunneled controller:
+4. Start only the local TUI against that tunneled controller:
 
 ```bash
 ./dist/nice-llama-server \
-  --state-dir /tmp/nls-remote \
-  --controller-url http://127.0.0.1:51234
+  --controller-url http://127.0.0.1:51234 \
+  --controller-token your-token
 ```
 
-Current limitation:
-- there is no dedicated `--controller-token` flag yet
-- the token must currently come from `controller.json`
+The app does not manage the SSH tunnel in this workflow. You create and keep the tunnel alive separately.
 
 ## TUI Usage
 
@@ -346,7 +323,8 @@ Current limitation:
 - `r`: rescan model roots
 - `L`: load selected bookmark
 - `U`: unload active runtime
-- `Enter`: save edits when editing bookmark details
+- `Enter`: move from bookmark name to args, or insert newline in args
+- `Ctrl+S`: save edits
 - `Esc`: discard edits and return focus to the list
 
 ### Editor
@@ -358,7 +336,8 @@ The bookmark detail pane has two editable fields:
 Key behavior:
 - `e`: enter edit mode with focus on bookmark name
 - `Up` / `Down`: navigate the list or move between bookmark name and args
-- `Enter`: save changes and return focus to the list
+- `Enter`: move from name to args, or insert a newline in args
+- `Ctrl+S`: save changes and return focus to the list
 - `Esc`: discard unsaved changes and return focus to the list
 
 ## Bookmark Format

@@ -89,7 +89,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := ListenLoopback()
 	if err != nil {
 		return err
 	}
@@ -101,6 +101,10 @@ func Run(ctx context.Context, opts Options) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return svc.Shutdown(shutdownCtx)
+}
+
+func ListenLoopback() (net.Listener, error) {
+	return net.Listen("tcp", "127.0.0.1:0")
 }
 
 func (s *Service) Start(listener net.Listener) (config.ControllerInfo, error) {

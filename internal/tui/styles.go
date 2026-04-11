@@ -55,21 +55,18 @@ func newStyles() styles {
 		logsPanel: lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#F59E0B")).
-			Padding(0, 1),
+			Padding(0, 0),
 		panelTitle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#E2E8F0")).
-			MarginBottom(1),
+			Foreground(lipgloss.Color("#E2E8F0")),
 		groupLabel: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#7DD3FC")).
-			MarginTop(1),
+			Foreground(lipgloss.Color("#7DD3FC")),
 		groupLabelSelected: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#0F172A")).
 			Background(lipgloss.Color("#7DD3FC")).
-			Padding(0, 1).
-			MarginTop(1),
+			Padding(0, 1),
 		bookmarkItem: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#CBD5E1")),
 		bookmarkSelected: lipgloss.NewStyle().
@@ -91,9 +88,9 @@ func newStyles() styles {
 			BorderForeground(lipgloss.Color("#22C55E")).
 			Padding(0, 1),
 		footerPanel: lipgloss.NewStyle().
-			BorderStyle(lipgloss.Border{Top: "─"}).
-			BorderTop(true).
-			BorderForeground(lipgloss.Color("#334155")).
+			// BorderStyle(lipgloss.Border{Top: "─"}).
+			// BorderTop(true).
+			// BorderForeground(lipgloss.Color("#334155")).
 			Padding(0, 1),
 		footerKey: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#F8FAFC")).
