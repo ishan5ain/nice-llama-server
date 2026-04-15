@@ -24,6 +24,7 @@ type styles struct {
 	footerKey          lipgloss.Style
 	muted              lipgloss.Style
 	logTimestamp       lipgloss.Style
+	tailIndicator      lipgloss.Style
 	logStdout          lipgloss.Style
 	logStderr          lipgloss.Style
 	logSystem          lipgloss.Style
@@ -101,6 +102,9 @@ func newStyles() styles {
 			Foreground(lipgloss.Color("#64748B")),
 		logTimestamp: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#94A3B8")),
+		tailIndicator: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#4ade80")),
 		logStdout: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#86EFAC")).
 			Bold(true),

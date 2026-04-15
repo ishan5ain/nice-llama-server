@@ -60,26 +60,28 @@ func (i listItem) key() string {
 }
 
 type model struct {
-	ctx           context.Context
-	client        *controller.Client
-	styles        styles
-	width         int
-	height        int
-	bottomView    bottomView
-	focus         focusArea
-	snapshot      config.Snapshot
-	selectedKey   string
-	logs          []config.LogEntry
-	lastSeq       int64
-	logScrollY    int
-	logScrollX    int
-	logViewWidth  int
-	logViewHeight int
-	stateReady    bool
-	errorMessage  string
-	flashMessage  string
-	editor        *bookmarkEditor
-	confirmDelete bool
+	ctx               context.Context
+	client            *controller.Client
+	styles            styles
+	width             int
+	height            int
+	bottomView        bottomView
+	focus             focusArea
+	snapshot          config.Snapshot
+	selectedKey       string
+	logs              []config.LogEntry
+	lastSeq           int64
+	logScrollY        int
+	logScrollX        int
+	logViewWidth      int
+	logViewHeight     int
+	stateReady        bool
+	errorMessage      string
+	flashMessage      string
+	editor            *bookmarkEditor
+	confirmDelete     bool
+	followTail        bool
+	followTailEnabled bool
 }
 
 type stateMsg struct {
@@ -106,13 +108,15 @@ type pollLogsMsg struct{}
 
 func newModel(ctx context.Context, client *controller.Client) *model {
 	return &model{
-		ctx:        ctx,
-		client:     client,
-		styles:     newStyles(),
-		width:      100,
-		height:     34,
-		bottomView: bottomViewBookmarks,
-		focus:      focusModelList,
+		ctx:               ctx,
+		client:            client,
+		styles:            newStyles(),
+		width:             100,
+		height:            34,
+		bottomView:        bottomViewBookmarks,
+		focus:             focusModelList,
+		followTail:        false,
+		followTailEnabled: false,
 	}
 }
 
@@ -153,8 +157,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logs = append([]config.LogEntry(nil), m.logs[len(m.logs)-maxVisibleLogs:]...)
 			}
 			m.lastSeq = msg.entries[len(msg.entries)-1].Seq
-			if wasAtBottom {
-				m.scrollLogToBottom()
+			if m.followTail && m.followTailEnabled {
+				if wasAtBottom {
+					m.scrollLogToBottom()
+				} else {
+					m.clampLogScroll()
+				}
 			} else {
 				m.clampLogScroll()
 			}
@@ -236,22 +244,43 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *model) handleLogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Keystroke() == "up":
+		m.followTail = false
+		m.followTailEnabled = false
 		m.scrollLogBy(-1)
 		return m, nil
 	case msg.Keystroke() == "down":
+		m.followTail = false
+		m.followTailEnabled = false
 		m.scrollLogBy(1)
 		return m, nil
 	case msg.Keystroke() == "pgup":
+		m.followTail = false
+		m.followTailEnabled = false
 		m.scrollLogBy(-m.logPageSize())
 		return m, nil
 	case msg.Keystroke() == "pgdown":
+		m.followTail = false
+		m.followTailEnabled = false
 		m.scrollLogBy(m.logPageSize())
 		return m, nil
 	case msg.Keystroke() == "left":
+		m.followTail = false
+		m.followTailEnabled = false
 		m.scrollLogHorizontally(-4)
 		return m, nil
 	case msg.Keystroke() == "right":
+		m.followTail = false
+		m.followTailEnabled = false
 		m.scrollLogHorizontally(4)
+		return m, nil
+	case msg.Keystroke() == "t":
+		m.followTail = true
+		m.followTailEnabled = true
+		m.scrollLogToBottom()
+		return m, nil
+	case msg.Keystroke() == "T":
+		m.followTail = false
+		m.followTailEnabled = false
 		return m, nil
 	case isLoadShortcut(msg):
 		if selected := m.selectedBookmark(); selected != nil {
@@ -270,6 +299,8 @@ func (m *model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	if m.bottomView != bottomViewLogs {
 		return m, nil
 	}
+	m.followTail = false
+	m.followTailEnabled = false
 	switch msg.Mouse().Button {
 	case tea.MouseWheelUp:
 		m.scrollLogBy(-3)

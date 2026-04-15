@@ -269,9 +269,11 @@ func (m *model) footerLine() string {
 		return m.styles.footerKey.Render("y") + " delete   " + m.styles.footerKey.Render("n") + " cancel"
 	}
 
+	tailIndicator := m.styles.tailIndicator.Render("[Tail]")
+
 	switch m.bottomView {
 	case bottomViewLogs:
-		return m.styles.footerKey.Render("/") + " bookmarks  " +
+		return tailIndicator + " bookmarks  " +
 			m.styles.footerKey.Render("Shift+L") + " load  " +
 			m.styles.footerKey.Render("Shift+U") + " unload  " +
 			m.styles.footerKey.Render("Ctrl+Q") + " quit"

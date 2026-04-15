@@ -419,6 +419,8 @@ func TestNewLogsAutoFollowOnlyAtBottom(t *testing.T) {
 	m.scrollLogToBottom()
 	atBottom := m.logScrollY
 
+	m.followTail = true
+	m.followTailEnabled = true
 	next, _ := m.Update(logsMsg{entries: []config.LogEntry{{
 		Seq:    6,
 		Stream: "stdout",
@@ -426,9 +428,11 @@ func TestNewLogsAutoFollowOnlyAtBottom(t *testing.T) {
 	}}})
 	got := next.(*model)
 	if got.logScrollY <= atBottom {
-		t.Fatalf("expected auto-follow when already at bottom")
+		t.Fatalf("expected auto-follow when already at bottom and tail mode enabled")
 	}
 
+	got.followTail = false
+	got.followTailEnabled = false
 	got.logScrollY = 0
 	next, _ = got.Update(logsMsg{entries: []config.LogEntry{{
 		Seq:    7,
@@ -437,6 +441,19 @@ func TestNewLogsAutoFollowOnlyAtBottom(t *testing.T) {
 	}}})
 	got = next.(*model)
 	if got.logScrollY != 0 {
-		t.Fatalf("expected viewport position to stay when scrolled up, got %d", got.logScrollY)
+		t.Fatalf("expected viewport position to stay when scrolled up and tail mode disabled, got %d", got.logScrollY)
+	}
+
+	got.followTail = true
+	got.followTailEnabled = true
+	got.logScrollY = 0
+	next, _ = got.Update(logsMsg{entries: []config.LogEntry{{
+		Seq:    8,
+		Stream: "stdout",
+		Line:   "followed line",
+	}}})
+	got = next.(*model)
+	if got.logScrollY != 0 {
+		t.Fatalf("expected auto-follow when tail mode is enabled and scroll is at top")
 	}
 }
