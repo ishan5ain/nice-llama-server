@@ -110,9 +110,9 @@ func (m *model) renderLogView(width, height int) string {
 }
 
 func (m *model) renderFooter(width int) string {
-	content := m.footerLine()
 	bodyHeight := max(1, footerPanelHeight-m.styles.footerPanel.GetVerticalFrameSize())
 	bodyWidth := max(1, width-m.styles.footerPanel.GetHorizontalFrameSize())
+	content := m.footerLine(bodyWidth)
 	return m.styles.footerPanel.Width(bodyWidth).Height(bodyHeight).Render(content)
 }
 
@@ -264,19 +264,34 @@ func (m *model) renderLogLines(width, height int) []string {
 	return clampStyledLines(lines, height)
 }
 
-func (m *model) footerLine() string {
+func (m *model) footerLine(width int) string {
 	if m.confirmDelete {
 		return m.styles.footerKey.Render("y") + " delete   " + m.styles.footerKey.Render("n") + " cancel"
 	}
 
-	tailIndicator := m.styles.tailIndicator.Render("[Tail]")
+	// Determine tail indicator style based on active/paused state
+	var tailIndicator string
+	if m.followTailEnabled {
+		tailIndicator = m.styles.tailIndicator.Render("[Tail]")
+	} else {
+		tailIndicator = m.styles.tailIndicatorPaused.Render("[tail]")
+	}
 
 	switch m.bottomView {
 	case bottomViewLogs:
-		return tailIndicator + " bookmarks  " +
+		// Left-aligned key bindings
+		leftContent := "bookmarks  " +
 			m.styles.footerKey.Render("Shift+L") + " load  " +
 			m.styles.footerKey.Render("Shift+U") + " unload  " +
 			m.styles.footerKey.Render("Ctrl+Q") + " quit"
+
+		// Calculate padding to push tail indicator to far right
+		leftWidth := lipgloss.Width(leftContent)
+		tailWidth := lipgloss.Width(tailIndicator)
+		padding := max(0, width-leftWidth-tailWidth-2) // 2 is for manual adjustment to prevent the tail indicator from wrapping onto the next line
+
+		return leftContent + strings.Repeat(" ", padding) + tailIndicator
+
 	default:
 		if m.focus == focusModelList {
 			return m.styles.footerKey.Render("↑/↓") + " navigate  " +

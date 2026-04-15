@@ -45,15 +45,15 @@ func TestFooterChangesByContext(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	if line := ansi.Strip(m.footerLine()); !strings.Contains(line, "logs") {
+	if line := ansi.Strip(m.footerLine(100)); !strings.Contains(line, "logs") {
 		t.Fatalf("bookmark footer should mention logs toggle: %q", line)
 	}
-	if line := ansi.Strip(m.footerLine()); strings.Contains(line, "Enter save") {
+	if line := ansi.Strip(m.footerLine(100)); strings.Contains(line, "Enter save") {
 		t.Fatalf("footer should no longer advertise enter as save: %q", line)
 	}
 
 	m.bottomView = bottomViewLogs
-	if line := ansi.Strip(m.footerLine()); !strings.Contains(line, "bookmarks") {
+	if line := ansi.Strip(m.footerLine(100)); !strings.Contains(line, "bookmarks") {
 		t.Fatalf("log footer should mention bookmarks toggle: %q", line)
 	}
 }
@@ -120,7 +120,7 @@ func TestLogViewHorizontalSliceShowsScrolledPortion(t *testing.T) {
 	lines := m.renderLogLines(12, 4)
 	joined := ansi.Strip(strings.Join(lines, "\n"))
 	if !strings.Contains(joined, "STDOUT") {
-		t.Fatalf("unexpected log rendering: %q", joined)
+		t.Fatalf("expected log content to be present, got %q", joined)
 	}
 	if strings.Contains(joined, "abcdefghijklmno") {
 		t.Fatalf("expected long line to be horizontally sliced, got %q", joined)

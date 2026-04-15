@@ -3,31 +3,32 @@ package tui
 import lipgloss "charm.land/lipgloss/v2"
 
 type styles struct {
-	headerPanel        lipgloss.Style
-	headerTitle        lipgloss.Style
-	headerStats        lipgloss.Style
-	headerStatus       lipgloss.Style
-	headerMessage      lipgloss.Style
-	panelBase          lipgloss.Style
-	panelFocus         lipgloss.Style
-	logsPanel          lipgloss.Style
-	panelTitle         lipgloss.Style
-	groupLabel         lipgloss.Style
-	groupLabelSelected lipgloss.Style
-	bookmarkItem       lipgloss.Style
-	bookmarkSelected   lipgloss.Style
-	bookmarkActive     lipgloss.Style
-	fieldLabel         lipgloss.Style
-	inputBlur          lipgloss.Style
-	inputFocus         lipgloss.Style
-	footerPanel        lipgloss.Style
-	footerKey          lipgloss.Style
-	muted              lipgloss.Style
-	logTimestamp       lipgloss.Style
-	tailIndicator      lipgloss.Style
-	logStdout          lipgloss.Style
-	logStderr          lipgloss.Style
-	logSystem          lipgloss.Style
+	headerPanel         lipgloss.Style
+	headerTitle         lipgloss.Style
+	headerStats         lipgloss.Style
+	headerStatus        lipgloss.Style
+	headerMessage       lipgloss.Style
+	panelBase           lipgloss.Style
+	panelFocus          lipgloss.Style
+	logsPanel           lipgloss.Style
+	panelTitle          lipgloss.Style
+	groupLabel          lipgloss.Style
+	groupLabelSelected  lipgloss.Style
+	bookmarkItem        lipgloss.Style
+	bookmarkSelected    lipgloss.Style
+	bookmarkActive      lipgloss.Style
+	fieldLabel          lipgloss.Style
+	inputBlur           lipgloss.Style
+	inputFocus          lipgloss.Style
+	footerPanel         lipgloss.Style
+	footerKey           lipgloss.Style
+	muted               lipgloss.Style
+	logTimestamp        lipgloss.Style
+	tailIndicator       lipgloss.Style
+	tailIndicatorPaused lipgloss.Style
+	logStdout           lipgloss.Style
+	logStderr           lipgloss.Style
+	logSystem           lipgloss.Style
 }
 
 func newStyles() styles {
@@ -105,6 +106,8 @@ func newStyles() styles {
 		tailIndicator: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#4ade80")),
+		tailIndicatorPaused: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#64748B")),
 		logStdout: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#86EFAC")).
 			Bold(true),
