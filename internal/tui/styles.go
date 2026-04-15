@@ -26,6 +26,7 @@ type styles struct {
 	logTimestamp         lipgloss.Style
 	logTimestampStreamed lipgloss.Style
 	tailIndicator        lipgloss.Style
+	tailIndicatorPaused  lipgloss.Style
 	logStdout            lipgloss.Style
 	logStderr            lipgloss.Style
 	logSystem            lipgloss.Style
@@ -108,6 +109,8 @@ func newStyles() styles {
 		tailIndicator: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#4ade80")),
+		tailIndicatorPaused: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#64748B")),
 		logStdout: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#86EFAC")).
 			Bold(true),

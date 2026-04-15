@@ -115,8 +115,8 @@ func newModel(ctx context.Context, client *controller.Client) *model {
 		height:            34,
 		bottomView:        bottomViewBookmarks,
 		focus:             focusModelList,
-		followTail:        false,
-		followTailEnabled: false,
+		followTail:        true,
+		followTailEnabled: true,
 	}
 }
 
