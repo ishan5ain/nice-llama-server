@@ -119,8 +119,8 @@ func TestLogViewHorizontalSliceShowsScrolledPortion(t *testing.T) {
 
 	lines := m.renderLogLines(12, 4)
 	joined := ansi.Strip(strings.Join(lines, "\n"))
-	if !strings.Contains(joined, "STDOUT") {
-		t.Fatalf("unexpected log rendering: %q", joined)
+	if !strings.Contains(joined, "abcdefgh") {
+		t.Fatalf("expected log content to be present, got %q", joined)
 	}
 	if strings.Contains(joined, "abcdefghijklmno") {
 		t.Fatalf("expected long line to be horizontally sliced, got %q", joined)

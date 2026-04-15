@@ -359,16 +359,16 @@ func padToWidth(value string, width int) string {
 func (m *model) renderedLogRows() []string {
 	rows := make([]string, 0, len(m.logs))
 	for _, entry := range m.logs {
-		ts := m.styles.logTimestamp.Render(entry.TS.Format("15:04:05"))
-		streamStyle := m.styles.logStdout
+		var tsStyle lipgloss.Style
 		if entry.Stream == "stderr" {
-			streamStyle = m.styles.logStderr
+			tsStyle = m.styles.logStderr
+		} else if entry.Stream == "system" {
+			tsStyle = m.styles.logSystem
+		} else {
+			tsStyle = m.styles.logStdout
 		}
-		if entry.Stream == "system" {
-			streamStyle = m.styles.logSystem
-		}
-		stream := streamStyle.Render(strings.ToUpper(entry.Stream))
-		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, ts, " ", stream, " ", entry.Line))
+		ts := tsStyle.Render(entry.TS.Format("15:04:05"))
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, ts, " ", entry.Line))
 	}
 	return rows
 }
