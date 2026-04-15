@@ -8,6 +8,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"nice-llama-server/internal/config"
 	"nice-llama-server/internal/controller"
@@ -69,6 +71,10 @@ type model struct {
 	selectedKey   string
 	logs          []config.LogEntry
 	lastSeq       int64
+	logScrollY    int
+	logScrollX    int
+	logViewWidth  int
+	logViewHeight int
 	stateReady    bool
 	errorMessage  string
 	flashMessage  string
@@ -124,6 +130,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.clampLogScroll()
 		return m, nil
 	case stateMsg:
 		if msg.err != nil {
@@ -140,11 +147,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if len(msg.entries) > 0 {
+			wasAtBottom := m.logAtBottom()
 			m.logs = append(m.logs, msg.entries...)
 			if len(m.logs) > maxVisibleLogs {
 				m.logs = append([]config.LogEntry(nil), m.logs[len(m.logs)-maxVisibleLogs:]...)
 			}
 			m.lastSeq = msg.entries[len(msg.entries)-1].Seq
+			if wasAtBottom {
+				m.scrollLogToBottom()
+			} else {
+				m.clampLogScroll()
+			}
 		}
 		return m, nil
 	case actionMsg:
@@ -174,6 +187,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(fetchLogsCmd(m.ctx, m.client, m.lastSeq), scheduleLogPoll())
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case tea.MouseWheelMsg:
+		return m.handleMouseWheel(msg)
 	default:
 		return m, nil
 	}
@@ -220,6 +235,24 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m *model) handleLogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
+	case msg.Keystroke() == "up":
+		m.scrollLogBy(-1)
+		return m, nil
+	case msg.Keystroke() == "down":
+		m.scrollLogBy(1)
+		return m, nil
+	case msg.Keystroke() == "pgup":
+		m.scrollLogBy(-m.logPageSize())
+		return m, nil
+	case msg.Keystroke() == "pgdown":
+		m.scrollLogBy(m.logPageSize())
+		return m, nil
+	case msg.Keystroke() == "left":
+		m.scrollLogHorizontally(-4)
+		return m, nil
+	case msg.Keystroke() == "right":
+		m.scrollLogHorizontally(4)
+		return m, nil
 	case isLoadShortcut(msg):
 		if selected := m.selectedBookmark(); selected != nil {
 			return m, loadBookmarkCmd(m.ctx, m.client, selected.ID)
@@ -231,6 +264,19 @@ func (m *model) handleLogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
+}
+
+func (m *model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	if m.bottomView != bottomViewLogs {
+		return m, nil
+	}
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
+		m.scrollLogBy(-3)
+	case tea.MouseWheelDown:
+		m.scrollLogBy(3)
+	}
+	return m, nil
 }
 
 func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -395,6 +441,7 @@ func (m *model) currentEditorBuffer() *textBuffer {
 func (m *model) toggleBottomView() {
 	if m.bottomView == bottomViewBookmarks {
 		m.bottomView = bottomViewLogs
+		m.clampLogScroll()
 		return
 	}
 	m.bottomView = bottomViewBookmarks
@@ -826,4 +873,60 @@ func displayNameFromPath(modelPath string) string {
 		return "Unknown model"
 	}
 	return name
+}
+
+func (m *model) logPageSize() int {
+	if m.logViewHeight <= 1 {
+		return 1
+	}
+	return m.logViewHeight
+}
+
+func (m *model) scrollLogBy(delta int) {
+	m.logScrollY += delta
+	m.clampLogScroll()
+}
+
+func (m *model) scrollLogHorizontally(delta int) {
+	m.logScrollX += delta
+	m.clampLogScroll()
+}
+
+func (m *model) scrollLogToBottom() {
+	rows := m.renderedLogRows()
+	maxScroll := max(0, len(rows)-m.logPageSize())
+	m.logScrollY = maxScroll
+	m.clampLogScroll()
+}
+
+func (m *model) logAtBottom() bool {
+	rows := m.renderedLogRows()
+	maxScroll := max(0, len(rows)-m.logPageSize())
+	return m.logScrollY >= maxScroll
+}
+
+func (m *model) clampLogScroll() {
+	rows := m.renderedLogRows()
+	page := m.logPageSize()
+	maxY := max(0, len(rows)-page)
+	if m.logScrollY < 0 {
+		m.logScrollY = 0
+	}
+	if m.logScrollY > maxY {
+		m.logScrollY = maxY
+	}
+
+	maxWidth := 0
+	for _, row := range rows {
+		if width := lipgloss.Width(ansi.Strip(row)); width > maxWidth {
+			maxWidth = width
+		}
+	}
+	maxX := max(0, maxWidth-m.logViewWidth)
+	if m.logScrollX < 0 {
+		m.logScrollX = 0
+	}
+	if m.logScrollX > maxX {
+		m.logScrollX = maxX
+	}
 }

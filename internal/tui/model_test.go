@@ -249,3 +249,194 @@ func TestListItemsUsesPathFallbackForMissingModel(t *testing.T) {
 		t.Fatalf("missing model group should be marked degraded")
 	}
 }
+
+func TestLogViewArrowKeysScrollViewport(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.bottomView = bottomViewLogs
+	m.logViewHeight = 2
+	for i := 0; i < 12; i++ {
+		m.logs = append(m.logs, config.LogEntry{
+			Seq:    int64(i + 1),
+			Stream: "stdout",
+			Line:   "line",
+		})
+	}
+	m.scrollLogToBottom()
+	if m.logScrollY == 0 {
+		t.Fatalf("expected initial scroll position to be at bottom")
+	}
+	before := m.logScrollY
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	got := next.(*model)
+	if got.logScrollY >= before {
+		t.Fatalf("up should scroll log viewport upward")
+	}
+
+	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	got = next.(*model)
+	if got.logScrollY != m.logScrollY {
+		t.Fatalf("down should scroll log viewport downward")
+	}
+}
+
+func TestLogViewPageKeysScrollByViewportHeight(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.bottomView = bottomViewLogs
+	m.logViewHeight = 3
+	for i := 0; i < 12; i++ {
+		m.logs = append(m.logs, config.LogEntry{
+			Seq:    int64(i + 1),
+			Stream: "stdout",
+			Line:   "line",
+		})
+	}
+	m.scrollLogToBottom()
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}))
+	got := next.(*model)
+	if got.logScrollY != 6 {
+		t.Fatalf("pgup should scroll by viewport height, got %d", got.logScrollY)
+	}
+
+	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
+	got = next.(*model)
+	if got.logScrollY != 9 {
+		t.Fatalf("pgdown should scroll by viewport height, got %d", got.logScrollY)
+	}
+}
+
+func TestLogViewHorizontalScrollUsesLeftRight(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.bottomView = bottomViewLogs
+	m.logViewWidth = 12
+	m.logs = []config.LogEntry{{
+		Seq:    1,
+		Stream: "stdout",
+		Line:   "very long log line for scrolling",
+	}}
+	m.clampLogScroll()
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	got := next.(*model)
+	if got.logScrollX <= 0 {
+		t.Fatalf("right should increase horizontal log scroll")
+	}
+
+	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
+	got = next.(*model)
+	if got.logScrollX != 0 {
+		t.Fatalf("left should reduce horizontal log scroll back to zero, got %d", got.logScrollX)
+	}
+}
+
+func TestLogViewTogglePreservesScrollOffsets(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.bottomView = bottomViewLogs
+	m.logViewHeight = 2
+	m.logs = []config.LogEntry{
+		{Seq: 1, Stream: "stdout", Line: "one"},
+		{Seq: 2, Stream: "stdout", Line: "two"},
+		{Seq: 3, Stream: "stdout", Line: "three"},
+		{Seq: 4, Stream: "stdout", Line: "four"},
+	}
+	m.logScrollY = 5
+	m.logScrollX = 7
+	m.clampLogScroll()
+	expectedY := m.logScrollY
+	expectedX := m.logScrollX
+
+	next, _ := m.Update(tea.KeyPressMsg{Text: "/"})
+	got := next.(*model)
+	if got.bottomView != bottomViewBookmarks {
+		t.Fatalf("expected bookmark view after toggle")
+	}
+
+	next, _ = got.Update(tea.KeyPressMsg{Text: "/"})
+	got = next.(*model)
+	if got.bottomView != bottomViewLogs {
+		t.Fatalf("expected log view after toggle back")
+	}
+	if got.logScrollY != expectedY || got.logScrollX != expectedX {
+		t.Fatalf("expected scroll offsets to be preserved, got y=%d x=%d", got.logScrollY, got.logScrollX)
+	}
+}
+
+func TestLogViewMouseWheelScrollsOnlyWhenVisible(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.bottomView = bottomViewLogs
+	m.logViewHeight = 2
+	for i := 0; i < 12; i++ {
+		m.logs = append(m.logs, config.LogEntry{
+			Seq:    int64(i + 1),
+			Stream: "stdout",
+			Line:   "line",
+		})
+	}
+	m.scrollLogToBottom()
+	if m.logScrollY == 0 {
+		t.Fatalf("expected initial scroll position to be at bottom")
+	}
+	before := m.logScrollY
+
+	next, _ := m.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
+	got := next.(*model)
+	if got.logScrollY >= before {
+		t.Fatalf("mouse wheel up should scroll log viewport upward")
+	}
+
+	got.bottomView = bottomViewBookmarks
+	before = got.logScrollY
+	next, _ = got.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
+	got = next.(*model)
+	if got.logScrollY != before {
+		t.Fatalf("mouse wheel should be ignored outside visible log view")
+	}
+}
+
+func TestNewLogsAutoFollowOnlyAtBottom(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.logViewHeight = 2
+	for i := 0; i < 5; i++ {
+		m.logs = append(m.logs, config.LogEntry{
+			Seq:    int64(i + 1),
+			Stream: "stdout",
+			Line:   "line",
+		})
+	}
+	m.scrollLogToBottom()
+	atBottom := m.logScrollY
+
+	next, _ := m.Update(logsMsg{entries: []config.LogEntry{{
+		Seq:    6,
+		Stream: "stdout",
+		Line:   "new line",
+	}}})
+	got := next.(*model)
+	if got.logScrollY <= atBottom {
+		t.Fatalf("expected auto-follow when already at bottom")
+	}
+
+	got.logScrollY = 0
+	next, _ = got.Update(logsMsg{entries: []config.LogEntry{{
+		Seq:    7,
+		Stream: "stdout",
+		Line:   "another line",
+	}}})
+	got = next.(*model)
+	if got.logScrollY != 0 {
+		t.Fatalf("expected viewport position to stay when scrolled up, got %d", got.logScrollY)
+	}
+}

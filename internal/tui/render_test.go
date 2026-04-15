@@ -104,6 +104,54 @@ func TestRenderLogViewUsesBottomContainerWidth(t *testing.T) {
 	}
 }
 
+func TestLogViewHorizontalSliceShowsScrolledPortion(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.bottomView = bottomViewLogs
+	m.logScrollX = 5
+	m.logs = []config.LogEntry{{
+		Seq:    1,
+		TS:     time.Unix(0, 0),
+		Stream: "stdout",
+		Line:   "abcdefghijklmno",
+	}}
+
+	lines := m.renderLogLines(12, 4)
+	joined := ansi.Strip(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, "STDOUT") {
+		t.Fatalf("unexpected log rendering: %q", joined)
+	}
+	if strings.Contains(joined, "abcdefghijklmno") {
+		t.Fatalf("expected long line to be horizontally sliced, got %q", joined)
+	}
+}
+
+func TestLogViewVerticalWindowUsesScrollOffset(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.bottomView = bottomViewLogs
+	m.logScrollY = 1
+	for i := 0; i < 4; i++ {
+		m.logs = append(m.logs, config.LogEntry{
+			Seq:    int64(i + 1),
+			TS:     time.Unix(int64(i), 0),
+			Stream: "stdout",
+			Line:   string(rune('A' + i)),
+		})
+	}
+
+	lines := m.renderLogLines(30, 3)
+	joined := ansi.Strip(strings.Join(lines, "\n"))
+	if strings.Contains(joined, "A") {
+		t.Fatalf("expected first log line to be scrolled out, got %q", joined)
+	}
+	if !strings.Contains(joined, "B") {
+		t.Fatalf("expected scrolled window to start later, got %q", joined)
+	}
+}
+
 func TestBookmarkEditorViewFillsExactBottomRegion(t *testing.T) {
 	t.Parallel()
 

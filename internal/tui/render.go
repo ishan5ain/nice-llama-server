@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -238,30 +239,28 @@ func (m *model) renderInputBox(values []string, focused bool, width, height int)
 }
 
 func (m *model) renderLogLines(width, height int) []string {
+	m.logViewWidth = width
 	lines := []string{m.styles.panelTitle.Render("Runtime Logs")}
-	if len(m.logs) == 0 {
-		lines = append(lines, m.styles.muted.Render("No logs yet."))
+	contentHeight := max(1, height-1)
+	m.logViewHeight = contentHeight
+
+	rows := m.renderedLogRows()
+	m.clampLogScroll()
+	if len(rows) == 0 {
+		lines = append(lines, clampStyledLines([]string{m.styles.muted.Render("No logs yet.")}, contentHeight)...)
 		return clampStyledLines(lines, height)
 	}
 
-	available := max(1, height-1)
-	entries := m.logs
-	if len(entries) > available {
-		entries = entries[len(entries)-available:]
+	start := m.logScrollY
+	if start > len(rows) {
+		start = len(rows)
 	}
-	for _, entry := range entries {
-		ts := m.styles.logTimestamp.Render(entry.TS.Format("15:04:05"))
-		streamStyle := m.styles.logStdout
-		if entry.Stream == "stderr" {
-			streamStyle = m.styles.logStderr
-		}
-		if entry.Stream == "system" {
-			streamStyle = m.styles.logSystem
-		}
-		stream := streamStyle.Render(strings.ToUpper(entry.Stream))
-		line := lipgloss.JoinHorizontal(lipgloss.Left, ts, " ", stream, " ", crop(entry.Line, max(1, width-22)))
-		lines = append(lines, line)
+	end := min(len(rows), start+contentHeight)
+	window := rows[start:end]
+	for _, row := range window {
+		lines = append(lines, sliceHorizontal(row, m.logScrollX, width))
 	}
+	lines = append(lines, make([]string, max(0, contentHeight-len(window)))...)
 	return clampStyledLines(lines, height)
 }
 
@@ -353,6 +352,36 @@ func padToWidth(value string, width int) string {
 		return value
 	}
 	return value + strings.Repeat(" ", missing)
+}
+
+func (m *model) renderedLogRows() []string {
+	rows := make([]string, 0, len(m.logs))
+	for _, entry := range m.logs {
+		ts := m.styles.logTimestamp.Render(entry.TS.Format("15:04:05"))
+		streamStyle := m.styles.logStdout
+		if entry.Stream == "stderr" {
+			streamStyle = m.styles.logStderr
+		}
+		if entry.Stream == "system" {
+			streamStyle = m.styles.logSystem
+		}
+		stream := streamStyle.Render(strings.ToUpper(entry.Stream))
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, ts, " ", stream, " ", entry.Line))
+	}
+	return rows
+}
+
+func sliceHorizontal(value string, offset, width int) string {
+	plain := []rune(ansi.Strip(value))
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(plain) {
+		offset = len(plain)
+	}
+	end := min(len(plain), offset+width)
+	sliced := string(plain[offset:end])
+	return padToWidth(sliced, width)
 }
 
 func splitBookmarkEditorWidths(width, gap int) (left int, right int) {
