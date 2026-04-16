@@ -114,6 +114,27 @@ Default output:
 
 ```text
 dist/nice-llama-server-windows-amd64.exe
+
+### Build a macOS binary from macOS host
+
+```bash
+./scripts/build-macos.sh
+```
+
+Default output:
+
+```text
+# The script automatically detects the host architecture and names the file accordingly.
+# Example: dist/nice-llama-server-macos-amd64
+#          dist/nice-llama-server-macos-arm64
+```
+
+You can also specify a custom output path and/or architecture:
+
+```bash
+./scripts/build-macos.sh ./dist/custom-name
+# or
+./scripts/build-macos.sh ./dist/custom-name arm64
 ```
 
 You can also choose a custom output path:
