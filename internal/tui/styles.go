@@ -24,12 +24,12 @@ type styles struct {
 	footerKey            lipgloss.Style
 	muted                lipgloss.Style
 	logTimestamp         lipgloss.Style
+	logTimestampStdout   lipgloss.Style
+	logTimestampStderr   lipgloss.Style
+	logTimestampSystem   lipgloss.Style
 	logTimestampStreamed lipgloss.Style
 	tailIndicator        lipgloss.Style
 	tailIndicatorPaused  lipgloss.Style
-	logStdout            lipgloss.Style
-	logStderr            lipgloss.Style
-	logSystem            lipgloss.Style
 }
 
 func newStyles() styles {
@@ -104,6 +104,12 @@ func newStyles() styles {
 			Foreground(lipgloss.Color("#64748B")),
 		logTimestamp: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#94A3B8")),
+		logTimestampStdout: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#86EFAC")),
+		logTimestampStderr: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FCA5A5")),
+		logTimestampSystem: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FCD34D")),
 		logTimestampStreamed: lipgloss.NewStyle().
 			Bold(true),
 		tailIndicator: lipgloss.NewStyle().
@@ -111,14 +117,5 @@ func newStyles() styles {
 			Foreground(lipgloss.Color("#4ade80")),
 		tailIndicatorPaused: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#64748B")),
-		logStdout: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#86EFAC")).
-			Bold(true),
-		logStderr: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FCA5A5")).
-			Bold(true),
-		logSystem: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FCD34D")).
-			Bold(true),
 	}
 }

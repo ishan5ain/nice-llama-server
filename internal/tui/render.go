@@ -244,23 +244,38 @@ func (m *model) renderLogLines(width, height int) []string {
 	contentHeight := max(1, height-1)
 	m.logViewHeight = contentHeight
 
-	rows := m.renderedLogRows()
-	m.clampLogScroll()
-	if len(rows) == 0 {
-		lines = append(lines, clampStyledLines([]string{m.styles.muted.Render("No logs yet.")}, contentHeight)...)
-		return clampStyledLines(lines, height)
+	totalRows := len(m.logs)
+	start := m.logScrollY
+	if start > totalRows {
+		start = totalRows
+	}
+	end := min(totalRows, start+contentHeight)
+
+	for i := start; i < end; i++ {
+		entry := m.logs[i]
+
+		var tsStyle lipgloss.Style
+		if entry.Stream == "stderr" {
+			tsStyle = m.styles.logTimestampStderr
+		} else if entry.Stream == "system" {
+			tsStyle = m.styles.logTimestampSystem
+		} else {
+			tsStyle = m.styles.logTimestampStdout
+		}
+		ts := tsStyle.Render(entry.TS.Format("15:04:05"))
+		tsWidth := lipgloss.Width(ts)
+
+		lineWidth := max(0, width-tsWidth-1)
+		line := m.styles.muted.Render(sliceHorizontal(entry.Line, m.logScrollX, lineWidth))
+
+		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Left, ts, " ", line))
 	}
 
-	start := m.logScrollY
-	if start > len(rows) {
-		start = len(rows)
+	// Fill remaining height
+	for len(lines) < height {
+		lines = append(lines, "")
 	}
-	end := min(len(rows), start+contentHeight)
-	window := rows[start:end]
-	for _, row := range window {
-		lines = append(lines, sliceHorizontal(row, m.logScrollX, width))
-	}
-	lines = append(lines, make([]string, max(0, contentHeight-len(window)))...)
+
 	return clampStyledLines(lines, height)
 }
 
@@ -280,7 +295,7 @@ func (m *model) footerLine(width int) string {
 	switch m.bottomView {
 	case bottomViewLogs:
 		// Left-aligned key bindings
-		leftContent := "bookmarks  " +
+		leftContent := m.styles.footerKey.Render("/") + " bookmarks  " +
 			m.styles.footerKey.Render("Shift+L") + " load  " +
 			m.styles.footerKey.Render("Shift+U") + " unload  " +
 			m.styles.footerKey.Render("Ctrl+Q") + " quit"
@@ -376,14 +391,15 @@ func (m *model) renderedLogRows() []string {
 	for _, entry := range m.logs {
 		var tsStyle lipgloss.Style
 		if entry.Stream == "stderr" {
-			tsStyle = m.styles.logStderr
+			tsStyle = m.styles.logTimestampStderr
 		} else if entry.Stream == "system" {
-			tsStyle = m.styles.logSystem
+			tsStyle = m.styles.logTimestampSystem
 		} else {
-			tsStyle = m.styles.logStdout
+			tsStyle = m.styles.logTimestampStdout
 		}
 		ts := tsStyle.Render(entry.TS.Format("15:04:05"))
-		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, ts, " ", entry.Line))
+		line := m.styles.muted.Render(ansi.Strip(entry.Line))
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, ts, " ", line))
 	}
 	return rows
 }

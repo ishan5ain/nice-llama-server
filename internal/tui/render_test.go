@@ -119,11 +119,17 @@ func TestLogViewHorizontalSliceShowsScrolledPortion(t *testing.T) {
 
 	lines := m.renderLogLines(12, 4)
 	joined := ansi.Strip(strings.Join(lines, "\n"))
-	if !strings.Contains(joined, "abcdefgh") {
-		t.Fatalf("expected log content to be present, got %q", joined)
+	// With width 12, timestamp "00:00:00" takes 8 chars + 1 space = 9, leaving 3 chars for content
+	// With scroll offset 5, we see "fgh" (indices 5,6,7)
+	if !strings.Contains(joined, "fgh") {
+		t.Fatalf("expected scrolled log content 'fgh' to be present, got %q", joined)
 	}
 	if strings.Contains(joined, "abcdefghijklmno") {
 		t.Fatalf("expected long line to be horizontally sliced, got %q", joined)
+	}
+	// Ensure we don't see the full line or the beginning
+	if strings.Contains(joined, "abcde") {
+		t.Fatalf("expected horizontal scroll to hide beginning of line, got %q", joined)
 	}
 }
 
