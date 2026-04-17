@@ -69,7 +69,7 @@ func runControllerMode(ctx context.Context, opts cliOptions) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	svc, err := controller.NewService(controller.Options{
+	info, err := controller.Serve(ctx, controller.Options{
 		StateDir:       opts.stateDir,
 		LlamaServerBin: opts.llamaServerBin,
 		ModelRoots:     opts.modelRoots,
@@ -77,23 +77,10 @@ func runControllerMode(ctx context.Context, opts cliOptions) error {
 	if err != nil {
 		return err
 	}
-
-	ln, err := controller.ListenLoopback()
-	if err != nil {
-		return err
-	}
-	info, err := svc.Start(ln)
-	if err != nil {
-		return err
-	}
 	if opts.printControllerInfo {
 		fmt.Fprint(os.Stdout, controllerInfoLine(info))
 	}
-
-	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return svc.Shutdown(shutdownCtx)
+	return nil
 }
 
 func runTUIMode(ctx context.Context, opts cliOptions) error {

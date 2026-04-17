@@ -83,24 +83,25 @@ func NewService(opts Options) (*Service, error) {
 	}, nil
 }
 
-func Run(ctx context.Context, opts Options) error {
+func Serve(ctx context.Context, opts Options) (config.ControllerInfo, error) {
 	svc, err := NewService(opts)
 	if err != nil {
-		return err
+		return config.ControllerInfo{}, err
 	}
 
 	ln, err := ListenLoopback()
 	if err != nil {
-		return err
+		return config.ControllerInfo{}, err
 	}
-	if _, err := svc.Start(ln); err != nil {
-		return err
+	info, err := svc.Start(ln)
+	if err != nil {
+		return config.ControllerInfo{}, err
 	}
 
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return svc.Shutdown(shutdownCtx)
+	return info, svc.Shutdown(shutdownCtx)
 }
 
 func ListenLoopback() (net.Listener, error) {
