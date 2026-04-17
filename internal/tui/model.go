@@ -382,6 +382,16 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case msg.Keystroke() == "ctrl+s":
 		return m.saveEditor()
+	case msg.Keystroke() == "tab":
+		if m.handleArgCompletionTab(argCompletionForward) {
+			m.errorMessage = ""
+		}
+		return m, nil
+	case msg.Keystroke() == "shift+tab":
+		if m.handleArgCompletionTab(argCompletionBackward) {
+			m.errorMessage = ""
+		}
+		return m, nil
 	case isLoadShortcut(msg):
 		if m.editor.isNew {
 			m.errorMessage = "save the new bookmark before loading it"
@@ -395,10 +405,13 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case isUnloadShortcut(msg):
 		return m, unloadCmd(m.ctx, m.client)
 	case msg.Keystroke() == "up":
+		m.editor.completion = argCompletionState{}
 		return m.handleEditorUp()
 	case msg.Keystroke() == "down":
+		m.editor.completion = argCompletionState{}
 		return m.handleEditorDown()
 	case msg.Keystroke() == "enter":
+		m.editor.completion = argCompletionState{}
 		switch m.focus {
 		case focusDetailName:
 			m.focus = focusDetailArgs
@@ -413,11 +426,17 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if handleBufferKey(buffer, msg.Keystroke()) {
+			if msg.Keystroke() == "backspace" || msg.Keystroke() == "delete" {
+				m.refreshPassiveArgCompletion()
+			} else {
+				m.editor.completion = argCompletionState{}
+			}
 			m.errorMessage = ""
 			return m, nil
 		}
 		if text := printableText(msg); text != "" {
 			buffer.InsertText(text)
+			m.refreshPassiveArgCompletion()
 			m.errorMessage = ""
 			return m, nil
 		}

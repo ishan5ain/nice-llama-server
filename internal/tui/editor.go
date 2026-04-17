@@ -2,9 +2,12 @@ package tui
 
 import (
 	"strings"
+	"unicode"
 
 	"nice-llama-server/internal/config"
 )
+
+const maxVisibleArgCompletions = 4
 
 type bookmarkEditor struct {
 	originalID  string
@@ -15,6 +18,7 @@ type bookmarkEditor struct {
 	initialArgs string
 	name        textBuffer
 	args        textBuffer
+	completion  argCompletionState
 }
 
 func newBookmarkEditor(b config.Bookmark, isNew bool) *bookmarkEditor {
@@ -43,6 +47,30 @@ func (e *bookmarkEditor) Bookmark() config.Bookmark {
 func (e *bookmarkEditor) Dirty() bool {
 	return strings.TrimSpace(e.name.Value()) != e.initialName ||
 		strings.TrimSpace(e.args.Value()) != e.initialArgs
+}
+
+type argCompletionState struct {
+	active     bool
+	passive    bool
+	row        int
+	start      int
+	end        int
+	prefix     string
+	index      int
+	candidates []argCompletionCandidate
+}
+
+type argCompletionCandidate struct {
+	Text        string
+	optionIndex int
+}
+
+type tokenContext struct {
+	row    int
+	start  int
+	end    int
+	prefix string
+	token  string
 }
 
 type textBuffer struct {
@@ -117,6 +145,34 @@ func (b *textBuffer) InsertNewLine() {
 	b.lines = next
 	b.row++
 	b.col = 0
+}
+
+func (b *textBuffer) ReplaceRange(row, start, end int, text string) bool {
+	if row < 0 || row >= len(b.lines) {
+		return false
+	}
+	line := b.lines[row]
+	if start < 0 {
+		start = 0
+	}
+	if end < start {
+		end = start
+	}
+	if start > len(line) {
+		start = len(line)
+	}
+	if end > len(line) {
+		end = len(line)
+	}
+	replacement := []rune(text)
+	next := make([]rune, 0, len(line)-end+start+len(replacement))
+	next = append(next, line[:start]...)
+	next = append(next, replacement...)
+	next = append(next, line[end:]...)
+	b.lines[row] = next
+	b.row = row
+	b.col = start + len(replacement)
+	return true
 }
 
 func (b *textBuffer) Backspace() {
@@ -241,6 +297,48 @@ func (b *textBuffer) RenderLines(width, height int, focused bool) []string {
 		lines = append(lines, text)
 	}
 	return lines
+}
+
+func (b *textBuffer) VisibleStart(height int) int {
+	if height < 1 {
+		height = 1
+	}
+	if b.multiline && b.row >= height {
+		return b.row - height + 1
+	}
+	return 0
+}
+
+func (b *textBuffer) TokenAtCursor() tokenContext {
+	row := b.row
+	if row < 0 || row >= len(b.lines) {
+		return tokenContext{row: row}
+	}
+	line := b.lines[row]
+	col := b.col
+	if col < 0 {
+		col = 0
+	}
+	if col > len(line) {
+		col = len(line)
+	}
+
+	start := col
+	for start > 0 && !unicode.IsSpace(line[start-1]) {
+		start--
+	}
+	end := col
+	for end < len(line) && !unicode.IsSpace(line[end]) {
+		end++
+	}
+
+	return tokenContext{
+		row:    row,
+		start:  start,
+		end:    end,
+		prefix: string(line[start:col]),
+		token:  string(line[start:end]),
+	}
 }
 
 func withCursor(text string, col int) string {

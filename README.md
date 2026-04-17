@@ -324,6 +324,7 @@ The app does not manage the SSH tunnel in this workflow. You create and keep the
 - `L`: load selected bookmark
 - `U`: unload active runtime
 - `Enter`: move from bookmark name to args, or insert newline in args
+- `Tab` / `Shift+Tab`: complete or cycle `llama-server` args while editing args
 - `Ctrl+S`: save edits
 - `Esc`: discard edits and return focus to the list
 
@@ -337,6 +338,7 @@ Key behavior:
 - `e`: enter edit mode with focus on bookmark name
 - `Up` / `Down`: navigate the list or move between bookmark name and args
 - `Enter`: move from name to args, or insert a newline in args
+- `Tab` / `Shift+Tab`: autocomplete the current args token from the tracked `llama-server` parameter catalog; repeated presses cycle matching options forward or backward
 - `Ctrl+S`: save changes and return focus to the list
 - `Esc`: discard unsaved changes and return focus to the list
 
