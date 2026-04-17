@@ -22,6 +22,57 @@ import (
 	rt "nice-llama-server/internal/runtime"
 )
 
+func TestNewServiceRejectsInvalidModelRoots(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("integration helper wrapper is unix-only in CI/dev")
+	}
+
+	bin := helperWrapper(t)
+	stateDir := t.TempDir()
+
+	_, err := ctrl.NewService(ctrl.Options{
+		StateDir:       stateDir,
+		LlamaServerBin: bin,
+		ModelRoots:     []string{filepath.Join(t.TempDir(), "does-not-exist")},
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid model root, got nil")
+	}
+
+	var target *config.ValidationError
+	if !errors.As(err, &target) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+	if target.Err != config.ErrModelRootNotFound {
+		t.Fatalf("wrapped error = %v, want %v", target.Err, config.ErrModelRootNotFound)
+	}
+}
+
+func TestNewServiceRejectsInvalidLlamaServerBin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("integration helper wrapper is unix-only in CI/dev")
+	}
+
+	stateDir := t.TempDir()
+
+	_, err := ctrl.NewService(ctrl.Options{
+		StateDir:       stateDir,
+		LlamaServerBin: filepath.Join(t.TempDir(), "does-not-exist"),
+		ModelRoots:     nil,
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid binary, got nil")
+	}
+
+	var target *config.ValidationError
+	if !errors.As(err, &target) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+	if target.Err != config.ErrLlamaServerBinNotFound {
+		t.Fatalf("wrapped error = %v, want %v", target.Err, config.ErrLlamaServerBinNotFound)
+	}
+}
+
 func TestRuntimeStopForceKill(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("force-kill integration is validated on unix-like dev hosts")
