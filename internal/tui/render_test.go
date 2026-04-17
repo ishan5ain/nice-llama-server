@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -68,6 +69,42 @@ func TestFocusedBookmarkNameRendersCursor(t *testing.T) {
 	rendered := ansi.Strip(strings.Join(m.renderDetailLines(50, 10), "\n"))
 	if !strings.Contains(rendered, "█") {
 		t.Fatalf("expected visible cursor in focused bookmark name field: %q", rendered)
+	}
+}
+
+func TestArgsCompletionRendersInlineGhostOptions(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx"}, false)
+	m.editor.args.MoveEnd()
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	got := next.(*model)
+
+	rendered := ansi.Strip(strings.Join(got.renderDetailLines(80, 10), "\n"))
+	if !strings.Contains(rendered, "--ctx-size") {
+		t.Fatalf("expected selected completion in args editor: %q", rendered)
+	}
+	if !strings.Contains(rendered, "--ctx-checkpoints") && !strings.Contains(rendered, "--ctx-size-draft") {
+		t.Fatalf("expected inline alternate completions in args editor: %q", rendered)
+	}
+}
+
+func TestPassiveSingleHyphenCompletionRendersInlineGhostOptions(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{}, false)
+
+	next, _ := m.Update(tea.KeyPressMsg{Text: "-"})
+	got := next.(*model)
+
+	rendered := ansi.Strip(strings.Join(got.renderDetailLines(80, 10), "\n"))
+	if !strings.Contains(rendered, "-h") {
+		t.Fatalf("expected passive single-hyphen options in args editor: %q", rendered)
 	}
 }
 

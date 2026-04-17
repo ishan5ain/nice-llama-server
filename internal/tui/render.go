@@ -201,8 +201,62 @@ func (m *model) renderDetailLines(width, height int) []string {
 	// lines = append(lines, "")
 
 	argsHeight := max(4, height-len(lines)-1)
-	lines = append(lines, m.renderFieldBlock("Args", m.editor.args.RenderLines(width, argsHeight, m.focus == focusDetailArgs), m.focus == focusDetailArgs, width, argsHeight)...)
+	lines = append(lines, m.renderFieldBlock("Args", m.renderArgsEditorLines(width, argsHeight), m.focus == focusDetailArgs, width, argsHeight)...)
 	return clampStyledLines(lines, height)
+}
+
+func (m *model) renderArgsEditorLines(width, height int) []string {
+	if m.editor == nil {
+		return nil
+	}
+	if m.focus != focusDetailArgs {
+		return m.editor.args.RenderLines(width, height, false)
+	}
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+
+	buffer := &m.editor.args
+	start := buffer.VisibleStart(height)
+	lines := make([]string, 0, height)
+	for i := 0; i < height; i++ {
+		idx := start + i
+		if idx >= len(buffer.lines) {
+			lines = append(lines, "")
+			continue
+		}
+		text := string(buffer.lines[idx])
+		if idx == buffer.row {
+			text = withCursor(text, buffer.col)
+			if m.editor.completion.active {
+				text += m.renderArgCompletionGhost()
+			}
+		}
+		lines = append(lines, text)
+	}
+	return lines
+}
+
+func (m *model) renderArgCompletionGhost() string {
+	state := m.editor.completion
+	if !state.active || len(state.candidates) == 0 {
+		return ""
+	}
+	window := passiveCompletionWindow(state.candidates, maxVisibleArgCompletions)
+	if !state.passive {
+		window = completionWindow(state.candidates, state.index, maxVisibleArgCompletions)
+	}
+	if len(window) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(window))
+	for _, candidate := range window {
+		labels = append(labels, candidate.Text)
+	}
+	return m.styles.completionGhost.Render("  " + strings.Join(labels, "  "))
 }
 
 func (m *model) renderField(label, value string, focused bool, width int) []string {
@@ -321,6 +375,7 @@ func (m *model) footerLine(width int) string {
 		}
 		return m.styles.footerKey.Render("↑/↓") + " move focus  " +
 			m.styles.footerKey.Render("Enter") + " next/newline  " +
+			m.styles.footerKey.Render("Tab/Shift+Tab") + " complete  " +
 			m.styles.footerKey.Render("Ctrl+S") + " save  " +
 			m.styles.footerKey.Render("Esc") + " discard  " +
 			m.styles.footerKey.Render("/") + " logs  " +

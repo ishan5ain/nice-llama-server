@@ -20,6 +20,7 @@ type styles struct {
 	fieldLabel           lipgloss.Style
 	inputBlur            lipgloss.Style
 	inputFocus           lipgloss.Style
+	completionGhost      lipgloss.Style
 	footerPanel          lipgloss.Style
 	footerKey            lipgloss.Style
 	muted                lipgloss.Style
@@ -90,6 +91,8 @@ func newStyles() styles {
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("#22C55E")).
 			Padding(0, 1),
+		completionGhost: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#64748B")),
 		footerPanel: lipgloss.NewStyle().
 			// BorderStyle(lipgloss.Border{Top: "─"}).
 			// BorderTop(true).
