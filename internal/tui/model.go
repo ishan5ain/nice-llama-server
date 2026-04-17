@@ -518,18 +518,7 @@ func handleBufferKey(buffer *textBuffer, key string) bool {
 }
 
 func printableText(msg tea.KeyPressMsg) string {
-	if msg.Text != "" {
-		return msg.Text
-	}
-	if strings.HasPrefix(msg.Keystroke(), "ctrl+") || strings.HasPrefix(msg.Keystroke(), "alt+") {
-		return ""
-	}
-	for _, special := range []string{"up", "down", "left", "right", "tab", "enter", "esc", "backspace", "delete", "home", "end", "shift+tab"} {
-		if msg.Keystroke() == special {
-			return ""
-		}
-	}
-	return ""
+	return msg.Text
 }
 
 func (m *model) listItems() []listItem {

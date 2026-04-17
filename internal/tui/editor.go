@@ -359,10 +359,3 @@ func withCursor(text string, col int) string {
 	out = append(out, runes[col:]...)
 	return string(out)
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
