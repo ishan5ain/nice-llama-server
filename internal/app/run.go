@@ -146,7 +146,7 @@ func resolveControllerInfo(store *config.Store, opts cliOptions) (config.Control
 func ensureController(ctx context.Context, store *config.Store, opts cliOptions) (config.ControllerInfo, error) {
 	if info, err := store.LoadControllerInfo(); err == nil {
 		client := controller.NewClient(info.URL, info.Token)
-		healthCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
+		healthCtx, cancel := context.WithTimeout(ctx, config.ControllerPingTimeout)
 		err = client.Health(healthCtx)
 		cancel()
 		if err == nil {
@@ -167,12 +167,13 @@ func ensureController(ctx context.Context, store *config.Store, opts cliOptions)
 		return config.ControllerInfo{}, err
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(config.ControllerReadyTimeout)
+	delay := config.ControllerPingInterval
 	for time.Now().Before(deadline) {
 		info, err := store.LoadControllerInfo()
 		if err == nil {
 			client := controller.NewClient(info.URL, info.Token)
-			healthCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
+			healthCtx, cancel := context.WithTimeout(ctx, config.ControllerPingTimeout)
 			pingErr := client.Health(healthCtx)
 			cancel()
 			if pingErr == nil {
@@ -182,7 +183,11 @@ func ensureController(ctx context.Context, store *config.Store, opts cliOptions)
 		select {
 		case <-ctx.Done():
 			return config.ControllerInfo{}, ctx.Err()
-		case <-time.After(250 * time.Millisecond):
+		case <-time.After(delay):
+			delay = delay * 2
+			if delay > config.ControllerMaxPingInterval {
+				delay = config.ControllerMaxPingInterval
+			}
 		}
 	}
 

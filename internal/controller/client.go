@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -82,6 +84,10 @@ func (c *Client) Logs(ctx context.Context, after int64) ([]config.LogEntry, erro
 	return out, err
 }
 
+func (c *Client) DoWithRetry(ctx context.Context, method, path string, body any, out any, retries int) error {
+	return c.doWithRetry(ctx, method, path, body, out, retries)
+}
+
 func (c *Client) Health(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/health", nil)
 	if err != nil {
@@ -96,6 +102,52 @@ func (c *Client) Health(ctx context.Context) error {
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func (c *Client) doWithRetry(ctx context.Context, method, path string, body any, out any, retries int) error {
+	var lastErr error
+	delay := 100 * time.Millisecond
+
+	for attempt := 0; attempt <= retries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+			delay = time.Duration(delay.Milliseconds()*2) * time.Millisecond
+			if delay > 2*time.Second {
+				delay = 2 * time.Second
+			}
+		}
+
+		lastErr = c.do(ctx, method, path, body, out)
+		if lastErr == nil {
+			return nil
+		}
+		if !isTransientError(lastErr) {
+			return lastErr
+		}
+	}
+	return lastErr
+}
+
+func isTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	var opErr *net.OpError
+	if errors.As(err, &netErr) {
+		return true
+	}
+	if errors.As(err, &opErr) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	return false
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {

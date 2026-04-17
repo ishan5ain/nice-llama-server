@@ -8,11 +8,25 @@ const (
 	StatusReady    = "ready"
 	StatusStopping = "stopping"
 	StatusFailed   = "failed"
+
+	ControllerPingTimeout     = 1200 * time.Millisecond
+	ControllerReadyTimeout    = 10 * time.Second
+	ControllerPingInterval    = 250 * time.Millisecond
+	ControllerMaxPingInterval = 2 * time.Second
 )
 
 type Config struct {
 	LlamaServerBin string   `json:"llama_server_bin"`
 	ModelRoots     []string `json:"model_roots"`
+}
+
+func (c Config) Snapshot() Config {
+	out := c
+	if c.ModelRoots != nil {
+		out.ModelRoots = make([]string, len(c.ModelRoots))
+		copy(out.ModelRoots, c.ModelRoots)
+	}
+	return out
 }
 
 type Bookmark struct {

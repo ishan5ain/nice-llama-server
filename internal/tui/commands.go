@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,7 +16,8 @@ func fetchStateCmd(ctx context.Context, client *controller.Client) tea.Cmd {
 	return func() tea.Msg {
 		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		snapshot, err := client.State(reqCtx)
+		var snapshot config.Snapshot
+		err := client.DoWithRetry(reqCtx, http.MethodGet, "/v1/state", nil, &snapshot, 2)
 		return stateMsg{snapshot: snapshot, err: err}
 	}
 }
@@ -23,7 +26,9 @@ func fetchLogsCmd(ctx context.Context, client *controller.Client, after int64) t
 	return func() tea.Msg {
 		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		entries, err := client.Logs(reqCtx, after)
+		var entries []config.LogEntry
+		path := fmt.Sprintf("/v1/logs?after=%d", after)
+		err := client.DoWithRetry(reqCtx, http.MethodGet, path, nil, &entries, 2)
 		return logsMsg{entries: entries, err: err}
 	}
 }

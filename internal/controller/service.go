@@ -57,9 +57,15 @@ func NewService(opts Options) (*Service, error) {
 	}
 
 	if opts.LlamaServerBin != "" {
+		if err := config.ValidateLlamaServerBin(opts.LlamaServerBin); err != nil {
+			return nil, err
+		}
 		state.Config.LlamaServerBin = opts.LlamaServerBin
 	}
 	if opts.ModelRoots != nil {
+		if err := config.ValidateModelRoots(opts.ModelRoots); err != nil {
+			return nil, err
+		}
 		state.Config.ModelRoots = opts.ModelRoots
 	}
 	if err := store.Save(state); err != nil {
@@ -162,7 +168,7 @@ func (s *Service) Snapshot() config.Snapshot {
 	defer s.mu.RUnlock()
 
 	return config.Snapshot{
-		Config:    s.state.Config,
+		Config:    s.state.Config.Snapshot(),
 		Bookmarks: cloneBookmarks(s.state.Bookmarks),
 		Models:    cloneModels(s.models),
 		Runtime:   s.runtimeState,
