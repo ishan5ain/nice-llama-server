@@ -180,19 +180,18 @@ func (s *Service) Rescan(modelRoots []string, llamaServerBin *string) (config.Sn
 	if llamaServerBin != nil && strings.TrimSpace(*llamaServerBin) != "" {
 		s.state.Config.LlamaServerBin = strings.TrimSpace(*llamaServerBin)
 	}
+
+	models, err := discovery.Scan(s.state.Config.ModelRoots)
+	if err != nil {
+		s.mu.Unlock()
+		return config.Snapshot{}, err
+	}
+
+	s.models = models
 	if err := s.store.Save(s.state); err != nil {
 		s.mu.Unlock()
 		return config.Snapshot{}, err
 	}
-	s.mu.Unlock()
-
-	models, err := discovery.Scan(s.state.Config.ModelRoots)
-	if err != nil {
-		return config.Snapshot{}, err
-	}
-
-	s.mu.Lock()
-	s.models = models
 	s.mu.Unlock()
 	return s.Snapshot(), nil
 }
@@ -391,6 +390,15 @@ func (s *Service) handleExit(bookmarkID string, exitCode int, waitErr error) {
 	}
 
 	s.active = nil
+
+	var name string
+	for _, b := range s.state.Bookmarks {
+		if b.ID == bookmarkID {
+			name = b.Name
+			break
+		}
+	}
+
 	code := exitCode
 	message := ""
 	if waitErr != nil {
@@ -402,6 +410,12 @@ func (s *Service) handleExit(bookmarkID string, exitCode int, waitErr error) {
 		ExitCode:         &code,
 		Error:            message,
 	}
+	s.logs.Add("system", fmt.Sprintf("model exited: %s (code %d%s)", name, code, func() string {
+		if message != "" {
+			return ": " + message
+		}
+		return ""
+	}()))
 }
 
 func sortBookmarks(items []config.Bookmark) {
