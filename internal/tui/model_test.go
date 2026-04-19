@@ -683,3 +683,147 @@ func TestNewLogsAutoFollowOnlyAtBottom(t *testing.T) {
 		t.Fatalf("expected auto-follow when tail mode is enabled and scroll is at top")
 	}
 }
+
+func TestPasteIntoNameStripsNewlines(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailName
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+	m.editor.name.col = len([]rune(m.editor.name.Value()))
+
+	next, _ := m.Update(tea.PasteMsg{Content: "multi\nline\nname"})
+	got := next.(*model)
+	if got.editor.name.Value() != "Gemmamulti line name" {
+		t.Fatalf("expected 'Gemmamulti line name', got %q", got.editor.name.Value())
+	}
+}
+
+func TestPasteIntoArgsPreservesNewlines(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false)
+	m.editor.args.col = len([]rune(m.editor.args.Value()))
+
+	next, _ := m.Update(tea.PasteMsg{Content: "--ctx 4096\n--gpu-layers 32"})
+	got := next.(*model)
+	if got.editor.args.Value() != "--ctx 4096--ctx 4096\n--gpu-layers 32" {
+		t.Fatalf("expected '--ctx 4096--ctx 4096\\n--gpu-layers 32', got %q", got.editor.args.Value())
+	}
+}
+
+func TestCtrlZUndoesInEditor(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailName
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+	m.editor.name.col = len([]rune(m.editor.name.Value()))
+
+	next, _ := m.Update(tea.PasteMsg{Content: "X"})
+	got := next.(*model)
+	if got.editor.name.Value() != "GemmaX" {
+		t.Fatalf("expected 'GemmaX', got %q", got.editor.name.Value())
+	}
+
+	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: 'z', Mod: tea.ModCtrl}))
+	got = next.(*model)
+	if got.editor.name.Value() != "Gemma" {
+		t.Fatalf("expected 'Gemma' after Ctrl+Z, got %q", got.editor.name.Value())
+	}
+}
+
+func TestCtrlZNoOpWithEmptyUndoStack(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailName
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'z', Mod: tea.ModCtrl}))
+	got := next.(*model)
+	if got.editor.name.Value() != "Gemma" {
+		t.Fatalf("Ctrl+Z on empty stack should not change value, got %q", got.editor.name.Value())
+	}
+}
+
+func TestPasteIntoArgsNormalizesCRLF(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false)
+	m.editor.args.col = len([]rune(m.editor.args.Value()))
+
+	next, _ := m.Update(tea.PasteMsg{Content: "--ctx 4096\r\n--gpu-layers 32\r\n--temp 0.6"})
+	got := next.(*model)
+	expected := "--ctx 4096--ctx 4096\n--gpu-layers 32\n--temp 0.6"
+	if got.editor.args.Value() != expected {
+		t.Fatalf("expected %q, got %q", expected, got.editor.args.Value())
+	}
+}
+
+func TestPasteIntoNameNormalizesCRLF(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailName
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+	m.editor.name.col = len([]rune(m.editor.name.Value()))
+
+	next, _ := m.Update(tea.PasteMsg{Content: "multi\r\nline\r\nname"})
+	got := next.(*model)
+	if got.editor.name.Value() != "Gemmamulti line name" {
+		t.Fatalf("expected 'Gemmamulti line name', got %q", got.editor.name.Value())
+	}
+}
+
+func TestPasteIntoArgsNormalizesLoneCR(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false)
+	m.editor.args.col = len([]rune(m.editor.args.Value()))
+
+	next, _ := m.Update(tea.PasteMsg{Content: "--ctx 4096\r--gpu-layers 32\r--temp 0.6"})
+	got := next.(*model)
+	expected := "--ctx 4096--ctx 4096\n--gpu-layers 32\n--temp 0.6"
+	if got.editor.args.Value() != expected {
+		t.Fatalf("expected %q, got %q", expected, got.editor.args.Value())
+	}
+}
+
+func TestPasteIntoArgsStripsANSIColorCodes(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false)
+	m.editor.args.col = len([]rune(m.editor.args.Value()))
+
+	pasted := "\x1b[38;2;255;0;0m--host\x1b[0m \x1b[38;2;0;255;0m0.0.0.0\x1b[0m"
+	next, _ := m.Update(tea.PasteMsg{Content: pasted})
+	got := next.(*model)
+	if got.editor.args.Value() != "--ctx 4096--host 0.0.0.0" {
+		t.Fatalf("expected '--ctx 4096--host 0.0.0.0', got %q", got.editor.args.Value())
+	}
+}
+
+func TestPasteIntoNameStripsANSIColorCodes(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailName
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+	m.editor.name.col = len([]rune(m.editor.name.Value()))
+
+	pasted := "\x1b[38;2;255;0;0mColored\x1b[0m \x1b[38;2;0;0;255mName\x1b[0m"
+	next, _ := m.Update(tea.PasteMsg{Content: pasted})
+	got := next.(*model)
+	if got.editor.name.Value() != "GemmaColored Name" {
+		t.Fatalf("expected 'GemmaColored Name', got %q", got.editor.name.Value())
+	}
+}

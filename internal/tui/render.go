@@ -377,9 +377,10 @@ func (m *model) footerLine(width int) string {
 			m.styles.footerKey.Render("Enter") + " next/newline  " +
 			m.styles.footerKey.Render("Tab/Shift+Tab") + " complete  " +
 			m.styles.footerKey.Render("Ctrl+S") + " save  " +
+			m.styles.footerKey.Render("Ctrl+Z") + " undo  " +
+			m.styles.footerKey.Render("Ctrl+V") + " paste  " +
 			m.styles.footerKey.Render("Esc") + " discard  " +
 			m.styles.footerKey.Render("/") + " logs  " +
-			m.styles.footerKey.Render("Shift+L/U") + " load/unload  " +
 			m.styles.footerKey.Render("Ctrl+Q") + " quit"
 	}
 }

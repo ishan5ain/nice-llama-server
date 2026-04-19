@@ -4,10 +4,21 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"nice-llama-server/internal/config"
 )
 
-const maxVisibleArgCompletions = 4
+const (
+	maxVisibleArgCompletions = 4
+	maxUndoDepth             = 50
+)
+
+type textSnapshot struct {
+	lines [][]rune
+	row   int
+	col   int
+}
 
 type bookmarkEditor struct {
 	originalID  string
@@ -78,6 +89,8 @@ type textBuffer struct {
 	row       int
 	col       int
 	multiline bool
+	undoStack []textSnapshot
+	redoStack []textSnapshot
 }
 
 func newTextBuffer(value string, multiline bool) textBuffer {
@@ -90,6 +103,8 @@ func (b *textBuffer) SetValue(value string) {
 	if value == "" {
 		b.lines = [][]rune{{}}
 		b.row, b.col = 0, 0
+		b.undoStack = nil
+		b.redoStack = nil
 		return
 	}
 	parts := strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
@@ -102,6 +117,45 @@ func (b *textBuffer) SetValue(value string) {
 	}
 	b.row = min(len(b.lines)-1, b.row)
 	b.col = min(len(b.lines[b.row]), b.col)
+	b.undoStack = nil
+	b.redoStack = nil
+}
+
+func (b *textBuffer) snapshot() textSnapshot {
+	snap := textSnapshot{
+		lines: make([][]rune, len(b.lines)),
+		row:   b.row,
+		col:   b.col,
+	}
+	for i, line := range b.lines {
+		snap.lines[i] = make([]rune, len(line))
+		copy(snap.lines[i], line)
+	}
+	return snap
+}
+
+func (b *textBuffer) pushUndo() {
+	snap := b.snapshot()
+	b.undoStack = append(b.undoStack, snap)
+	if len(b.undoStack) > maxUndoDepth {
+		b.undoStack = b.undoStack[len(b.undoStack)-maxUndoDepth:]
+	}
+}
+
+func (b *textBuffer) Undo() bool {
+	if len(b.undoStack) == 0 {
+		return false
+	}
+	b.redoStack = append(b.redoStack, b.snapshot())
+	if len(b.redoStack) > maxUndoDepth {
+		b.redoStack = b.redoStack[len(b.redoStack)-maxUndoDepth:]
+	}
+	prev := b.undoStack[len(b.undoStack)-1]
+	b.undoStack = b.undoStack[:len(b.undoStack)-1]
+	b.lines = prev.lines
+	b.row = prev.row
+	b.col = prev.col
+	return true
 }
 
 func (b *textBuffer) Value() string {
@@ -116,24 +170,38 @@ func (b *textBuffer) InsertText(text string) {
 	if text == "" {
 		return
 	}
+	b.pushUndo()
+	text = ansi.Strip(text)
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
 	for _, r := range text {
 		if r == '\n' {
 			if b.multiline {
 				b.InsertNewLine()
+			} else {
+				b.insertRune(' ')
 			}
 			continue
 		}
-		line := b.lines[b.row]
-		line = append(line[:b.col], append([]rune{r}, line[b.col:]...)...)
-		b.lines[b.row] = line
-		b.col++
+		if !unicode.IsPrint(r) && r != '\t' {
+			continue
+		}
+		b.insertRune(r)
 	}
+}
+
+func (b *textBuffer) insertRune(r rune) {
+	line := b.lines[b.row]
+	line = append(line[:b.col], append([]rune{r}, line[b.col:]...)...)
+	b.lines[b.row] = line
+	b.col++
 }
 
 func (b *textBuffer) InsertNewLine() {
 	if !b.multiline {
 		return
 	}
+	b.pushUndo()
 	line := b.lines[b.row]
 	left := append([]rune{}, line[:b.col]...)
 	right := append([]rune{}, line[b.col:]...)
@@ -151,6 +219,7 @@ func (b *textBuffer) ReplaceRange(row, start, end int, text string) bool {
 	if row < 0 || row >= len(b.lines) {
 		return false
 	}
+	b.pushUndo()
 	line := b.lines[row]
 	if start < 0 {
 		start = 0
@@ -177,6 +246,7 @@ func (b *textBuffer) ReplaceRange(row, start, end int, text string) bool {
 
 func (b *textBuffer) Backspace() {
 	if b.col > 0 {
+		b.pushUndo()
 		line := b.lines[b.row]
 		line = append(line[:b.col-1], line[b.col:]...)
 		b.lines[b.row] = line
@@ -186,6 +256,7 @@ func (b *textBuffer) Backspace() {
 	if !b.multiline || b.row == 0 {
 		return
 	}
+	b.pushUndo()
 	prevLen := len(b.lines[b.row-1])
 	b.lines[b.row-1] = append(b.lines[b.row-1], b.lines[b.row]...)
 	b.lines = append(b.lines[:b.row], b.lines[b.row+1:]...)
@@ -196,6 +267,7 @@ func (b *textBuffer) Backspace() {
 func (b *textBuffer) Delete() {
 	line := b.lines[b.row]
 	if b.col < len(line) {
+		b.pushUndo()
 		line = append(line[:b.col], line[b.col+1:]...)
 		b.lines[b.row] = line
 		return
@@ -203,6 +275,7 @@ func (b *textBuffer) Delete() {
 	if !b.multiline || b.row+1 >= len(b.lines) {
 		return
 	}
+	b.pushUndo()
 	b.lines[b.row] = append(b.lines[b.row], b.lines[b.row+1]...)
 	b.lines = append(b.lines[:b.row+1], b.lines[b.row+2:]...)
 }

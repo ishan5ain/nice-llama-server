@@ -190,6 +190,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(fetchLogsCmd(m.ctx, m.client, m.lastSeq), scheduleLogPoll())
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case tea.PasteMsg:
+		m.pasteIntoBuffer(msg.Content)
+		return m, nil
 	case tea.MouseWheelMsg:
 		return m.handleMouseWheel(msg)
 	default:

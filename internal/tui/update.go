@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,9 +13,6 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Keystroke() == "ctrl+q":
 		return m, tea.Quit
-	case msg.Text == "/":
-		m.toggleBottomView()
-		return m, nil
 	}
 
 	if m.confirmDelete {
@@ -81,6 +81,9 @@ func (m *model) handleLogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case msg.Keystroke() == "T":
 		m.followTail = false
 		m.followTailEnabled = false
+		return m, nil
+	case msg.Text == "/":
+		m.toggleBottomView()
 		return m, nil
 	case isLoadShortcut(msg):
 		if selected := m.selectedBookmark(); selected != nil {
@@ -154,6 +157,9 @@ func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case msg.Text == "r":
 		return m, rescanCmd(m.ctx, m.client, nil, nil)
+	case msg.Text == "/":
+		m.toggleBottomView()
+		return m, nil
 	case isLoadShortcut(msg):
 		if selected := m.selectedBookmark(); selected != nil {
 			return m, loadBookmarkCmd(m.ctx, m.client, selected.ID)
@@ -168,7 +174,11 @@ func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.editor == nil {
+	switch {
+	case msg.Text == "/" && m.editor == nil:
+		m.toggleBottomView()
+		return m, nil
+	case m.editor == nil:
 		m.focus = focusModelList
 		return m, nil
 	}
@@ -182,6 +192,15 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case msg.Keystroke() == "ctrl+s":
 		return m.saveEditor()
+	case msg.Keystroke() == "ctrl+z":
+		buffer := m.currentEditorBuffer()
+		if buffer != nil {
+			if buffer.Undo() {
+				m.editor.completion = argCompletionState{}
+				m.errorMessage = ""
+			}
+		}
+		return m, nil
 	case msg.Keystroke() == "tab":
 		if m.handleArgCompletionTab(argCompletionForward) {
 			m.errorMessage = ""
@@ -192,18 +211,6 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.errorMessage = ""
 		}
 		return m, nil
-	case isLoadShortcut(msg):
-		if m.editor.isNew {
-			m.errorMessage = "save the new bookmark before loading it"
-			return m, nil
-		}
-		if m.editor.Dirty() {
-			m.errorMessage = "save or discard changes before loading"
-			return m, nil
-		}
-		return m, loadBookmarkCmd(m.ctx, m.client, m.editor.originalID)
-	case isUnloadShortcut(msg):
-		return m, unloadCmd(m.ctx, m.client)
 	case msg.Keystroke() == "up":
 		m.editor.completion = argCompletionState{}
 		return m.handleEditorUp()
@@ -219,6 +226,14 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.editor.args.InsertNewLine()
 		}
 		m.errorMessage = ""
+		return m, nil
+	case msg.Keystroke() == "ctrl+v":
+		clipboardContent, err := readClipboard()
+		if err != nil {
+			m.errorMessage = "failed to read clipboard"
+			return m, nil
+		}
+		m.pasteIntoBuffer(clipboardContent)
 		return m, nil
 	default:
 		buffer := m.currentEditorBuffer()
@@ -270,6 +285,10 @@ func (m *model) saveEditor() (tea.Model, tea.Cmd) {
 	if m.editor == nil {
 		return m, nil
 	}
+	m.editor.name.undoStack = nil
+	m.editor.name.redoStack = nil
+	m.editor.args.undoStack = nil
+	m.editor.args.redoStack = nil
 	bookmark := m.editor.Bookmark()
 	return m, saveBookmarkCmd(m.ctx, m.client, bookmark, m.editor.isNew, false)
 }
@@ -286,6 +305,24 @@ func (m *model) currentEditorBuffer() *textBuffer {
 	default:
 		return nil
 	}
+}
+
+func (m *model) pasteIntoBuffer(text string) {
+	if text == "" || m.editor == nil {
+		return
+	}
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	buffer := m.currentEditorBuffer()
+	if buffer == nil {
+		return
+	}
+	if !buffer.multiline {
+		text = strings.ReplaceAll(text, "\n", " ")
+	}
+	buffer.InsertText(text)
+	m.editor.completion = argCompletionState{}
+	m.errorMessage = ""
 }
 
 func (m *model) toggleBottomView() {
@@ -319,4 +356,21 @@ func handleBufferKey(buffer *textBuffer, key string) bool {
 
 func printableText(msg tea.KeyPressMsg) string {
 	return msg.Text
+}
+
+func readClipboard() (string, error) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbpaste")
+	case "linux":
+		cmd = exec.Command("xclip", "-o", "-selection", "clipboard")
+	default:
+		return "", fmt.Errorf("clipboard not supported on %s", runtime.GOOS)
+	}
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
 }
