@@ -195,6 +195,60 @@ func TestLogViewVerticalWindowUsesScrollOffset(t *testing.T) {
 	}
 }
 
+func TestFormatLogTimestampNilLocation(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2024, time.January, 2, 3, 4, 5, 0, time.FixedZone("UTC-07", -7*60*60))
+	got := formatLogTimestamp(ts, nil)
+	want := ts.Format("15:04:05")
+	if got != want {
+		t.Fatalf("unexpected timestamp format with nil location: got %q want %q", got, want)
+	}
+}
+
+func TestFormatLogTimestampFixedLocation(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2024, time.January, 2, 1, 2, 3, 0, time.UTC)
+	loc := time.FixedZone("UTC+09", 9*60*60)
+
+	got := formatLogTimestamp(ts, loc)
+	want := "10:02:03"
+	if got != want {
+		t.Fatalf("unexpected timestamp format with fixed location: got %q want %q", got, want)
+	}
+}
+
+func TestRenderLogTimestampsUseSystemLocal(t *testing.T) {
+	originalLocal := time.Local
+	testLocal := time.FixedZone("UTC+02", 2*60*60)
+	time.Local = testLocal
+	defer func() {
+		time.Local = originalLocal
+	}()
+
+	ts := time.Date(2024, time.January, 2, 1, 2, 3, 0, time.UTC)
+	expected := formatLogTimestamp(ts, testLocal)
+
+	m := newModel(context.Background(), nil)
+	m.logs = []config.LogEntry{{
+		Seq:    1,
+		TS:     ts,
+		Stream: "stdout",
+		Line:   "server started",
+	}}
+
+	lines := m.renderLogLines(40, 4)
+	if got := ansi.Strip(strings.Join(lines, "\n")); !strings.Contains(got, expected) {
+		t.Fatalf("expected renderLogLines output to include local timestamp %q, got %q", expected, got)
+	}
+
+	rows := m.renderedLogRows()
+	if got := ansi.Strip(strings.Join(rows, "\n")); !strings.Contains(got, expected) {
+		t.Fatalf("expected renderedLogRows output to include local timestamp %q, got %q", expected, got)
+	}
+}
+
 func TestBookmarkEditorViewFillsExactBottomRegion(t *testing.T) {
 	t.Parallel()
 

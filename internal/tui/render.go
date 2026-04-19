@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -316,7 +317,7 @@ func (m *model) renderLogLines(width, height int) []string {
 		} else {
 			tsStyle = m.styles.logTimestampStdout
 		}
-		ts := tsStyle.Render(entry.TS.Format("15:04:05"))
+		ts := tsStyle.Render(formatLogTimestamp(entry.TS, time.Local))
 		tsWidth := lipgloss.Width(ts)
 
 		lineWidth := max(0, width-tsWidth-1)
@@ -453,11 +454,18 @@ func (m *model) renderedLogRows() []string {
 		} else {
 			tsStyle = m.styles.logTimestampStdout
 		}
-		ts := tsStyle.Render(entry.TS.Format("15:04:05"))
+		ts := tsStyle.Render(formatLogTimestamp(entry.TS, time.Local))
 		line := m.styles.muted.Render(ansi.Strip(entry.Line))
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, ts, " ", line))
 	}
 	return rows
+}
+
+func formatLogTimestamp(ts time.Time, loc *time.Location) string {
+	if loc == nil {
+		return ts.Format("15:04:05")
+	}
+	return ts.In(loc).Format("15:04:05")
 }
 
 func sliceHorizontal(value string, offset, width int) string {
