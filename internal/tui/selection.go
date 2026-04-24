@@ -256,6 +256,15 @@ func (m *model) isMissingModelPath(modelPath string) bool {
 	return true
 }
 
+func (m *model) discoveredModelByPath(modelPath string) *config.DiscoveredModel {
+	for i := range m.snapshot.Models {
+		if m.snapshot.Models[i].Path == modelPath {
+			return &m.snapshot.Models[i]
+		}
+	}
+	return nil
+}
+
 func displayNameFromPath(modelPath string) string {
 	name := modelPath
 	if idx := strings.LastIndexAny(name, `/\`); idx >= 0 && idx+1 < len(name) {

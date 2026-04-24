@@ -1,9 +1,10 @@
 package tui
 
 import (
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
-	"unicode"
 )
 
 const (
@@ -20,11 +21,6 @@ func (m *model) handleArgCompletionTab(direction int) bool {
 	}
 
 	ctx := m.editor.args.TokenAtCursor()
-	if ctx.token != "" && ctx.prefix != "" && !strings.HasPrefix(ctx.prefix, "-") {
-		m.editor.completion = argCompletionState{}
-		return false
-	}
-
 	candidates := m.argCompletionCandidates(ctx)
 	if len(candidates) == 0 {
 		m.editor.completion = argCompletionState{}
@@ -85,6 +81,13 @@ func (m *model) applyArgCompletionCandidate(index int) {
 }
 
 func (m *model) argCompletionCandidates(ctx tokenContext) []argCompletionCandidate {
+	if mmctx, ok := m.mmprojValueCompletionContext(); ok {
+		return m.mmprojArgCompletionCandidates(mmctx, runtime.GOOS)
+	}
+	if ctx.token != "" && ctx.prefix != "" && !strings.HasPrefix(ctx.prefix, "-") {
+		return nil
+	}
+
 	catalog := loadLlamaArgCatalog()
 	if len(catalog) == 0 {
 		return nil
@@ -137,6 +140,134 @@ func (m *model) argCompletionCandidates(ctx tokenContext) []argCompletionCandida
 		})
 	}
 	return candidates
+}
+
+func (m *model) mmprojValueCompletionContext() (tokenContext, bool) {
+	if m.editor == nil {
+		return tokenContext{}, false
+	}
+
+	buffer := &m.editor.args
+	row := buffer.row
+	if row < 0 || row >= len(buffer.lines) {
+		return tokenContext{}, false
+	}
+
+	line := buffer.lines[row]
+	col := buffer.col
+	if col < 0 {
+		col = 0
+	}
+	if col > len(line) {
+		col = len(line)
+	}
+
+	tokens := scanLineTokens(line)
+	currentIndex := -1
+	previousIndex := -1
+	for i, token := range tokens {
+		if token.end <= col {
+			previousIndex = i
+		}
+		if col >= token.start && col <= token.end {
+			currentIndex = i
+			break
+		}
+	}
+
+	if currentIndex >= 0 {
+		if currentIndex == 0 || !isMMProjValueFlag(tokens[currentIndex-1].text) {
+			return tokenContext{}, false
+		}
+		return tokenContext{
+			row:    row,
+			start:  tokens[currentIndex].start,
+			end:    tokens[currentIndex].end,
+			prefix: string(line[tokens[currentIndex].start:col]),
+			token:  tokens[currentIndex].text,
+		}, true
+	}
+
+	if previousIndex < 0 || !isMMProjValueFlag(tokens[previousIndex].text) {
+		return tokenContext{}, false
+	}
+
+	return tokenContext{
+		row:   row,
+		start: col,
+		end:   col,
+	}, true
+}
+
+func isMMProjValueFlag(token string) bool {
+	return token == "-mm" || token == "--mmproj"
+}
+
+func (m *model) mmprojArgCompletionCandidates(ctx tokenContext, goos string) []argCompletionCandidate {
+	model := m.discoveredModelByPath(m.editor.modelPath)
+	if model == nil || len(model.MMProjPaths) == 0 {
+		return nil
+	}
+
+	var exact []argCompletionCandidate
+	candidates := make([]argCompletionCandidate, 0, len(model.MMProjPaths))
+	for _, path := range model.MMProjPaths {
+		if !matchesMMProjPrefix(ctx.prefix, path, goos) {
+			continue
+		}
+		candidate := argCompletionCandidate{
+			Text: formatMMProjCompletionPathForOS(path, goos),
+		}
+		if ctx.prefix != "" && candidate.Text == ctx.prefix {
+			exact = append(exact, candidate)
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	return append(exact, candidates...)
+}
+
+func matchesMMProjPrefix(prefix, path, goos string) bool {
+	if prefix == "" {
+		return true
+	}
+
+	formatted := formatMMProjCompletionPathForOS(path, goos)
+	if hasPathPrefix(formatted, prefix, goos) {
+		return true
+	}
+
+	prefix = strings.TrimLeft(prefix, `'"`)
+	if prefix == "" {
+		return true
+	}
+
+	basename := mmprojPathBase(path, goos)
+	return hasPathPrefix(path, prefix, goos) ||
+		hasPathPrefix(basename, prefix, goos)
+}
+
+func hasPathPrefix(value, prefix, goos string) bool {
+	if goos == "windows" {
+		value = strings.ToLower(value)
+		prefix = strings.ToLower(prefix)
+	}
+	return strings.HasPrefix(value, prefix)
+}
+
+func formatMMProjCompletionPathForOS(path, goos string) string {
+	if goos == "windows" {
+		return "'" + path + "'"
+	}
+	return path
+}
+
+func mmprojPathBase(path, goos string) string {
+	if goos == "windows" {
+		path = strings.ReplaceAll(path, `\`, "/")
+		return filepath.Base(path)
+	}
+	return filepath.Base(path)
 }
 
 func (m *model) refreshPassiveArgCompletion() {
@@ -229,46 +360,16 @@ type bufferToken struct {
 func scanBufferTokens(buffer textBuffer) []bufferToken {
 	var tokens []bufferToken
 	for row, line := range buffer.lines {
-		col := 0
-		for col < len(line) {
-			for col < len(line) && unicode.IsSpace(line[col]) {
-				col++
+		for _, token := range scanLineTokens(line) {
+			if !strings.HasPrefix(token.text, "-") {
+				continue
 			}
-			if col >= len(line) {
-				break
-			}
-			start := col
-			var quote rune
-			escaped := false
-			for col < len(line) {
-				r := line[col]
-				switch {
-				case escaped:
-					escaped = false
-				case r == '\\' && quote != '\'':
-					escaped = true
-				case quote != 0:
-					if r == quote {
-						quote = 0
-					}
-				case r == '\'' || r == '"':
-					quote = r
-				case unicode.IsSpace(r):
-					goto tokenDone
-				}
-				col++
-			}
-		tokenDone:
-			end := col
-			text := string(line[start:end])
-			if strings.HasPrefix(text, "-") {
-				tokens = append(tokens, bufferToken{
-					row:   row,
-					start: start,
-					end:   end,
-					text:  text,
-				})
-			}
+			tokens = append(tokens, bufferToken{
+				row:   row,
+				start: token.start,
+				end:   token.end,
+				text:  token.text,
+			})
 		}
 	}
 	return tokens

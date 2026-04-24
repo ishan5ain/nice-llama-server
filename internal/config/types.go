@@ -44,6 +44,7 @@ type DiscoveredModel struct {
 	DisplayName string `json:"display_name"`
 	GroupKey    string `json:"group_key"`
 	Root        string `json:"root"`
+	MMProjPaths []string `json:"mmproj_paths,omitempty"`
 }
 
 type RuntimeState struct {

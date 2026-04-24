@@ -273,3 +273,19 @@ func TestInsertTextSingleLineStripsNewlines(t *testing.T) {
 		t.Fatalf("expected 'line1 line2 line3', got %q", buffer.Value())
 	}
 }
+
+func TestTextBufferTokenAtCursorKeepsQuotedPathsWhole(t *testing.T) {
+	t.Parallel()
+
+	buffer := newTextBuffer("-mm 'C:\\models\\Vision Path\\mmproj.gguf'", true)
+	buffer.row = 0
+	buffer.col = len([]rune(buffer.Value()))
+
+	ctx := buffer.TokenAtCursor()
+	if got, want := ctx.token, "'C:\\models\\Vision Path\\mmproj.gguf'"; got != want {
+		t.Fatalf("expected token %q, got %q", want, got)
+	}
+	if got, want := ctx.start, len([]rune("-mm ")); got != want {
+		t.Fatalf("expected start %d, got %d", want, got)
+	}
+}

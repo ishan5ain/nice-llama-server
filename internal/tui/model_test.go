@@ -205,6 +205,190 @@ func TestTabCompletionExcludesAlreadyUsedArgs(t *testing.T) {
 	}
 }
 
+func TestTabCompletesMMProjValueAfterShortFlag(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{
+		ModelPath: "/models/vision.gguf",
+		ArgsText:  "-mm ",
+	}, false)
+	m.snapshot.Models = []config.DiscoveredModel{{
+		Path:        "/models/vision.gguf",
+		DisplayName: "vision",
+		MMProjPaths: []string{"/models/mmproj-a.gguf", "/models/mmproj-b.gguf"},
+	}}
+	m.editor.args.MoveEnd()
+
+	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	got := next.(*model)
+	if cmd != nil {
+		t.Fatalf("tab completion should not trigger a command")
+	}
+	if got.editor.args.Value() != "-mm /models/mmproj-a.gguf" {
+		t.Fatalf("expected first mmproj candidate, got %q", got.editor.args.Value())
+	}
+	if !got.editor.completion.active {
+		t.Fatalf("completion state should remain active for cycling")
+	}
+}
+
+func TestTabCompletesMMProjValueAfterLongFlag(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{
+		ModelPath: "/models/vision.gguf",
+		ArgsText:  "--mmproj ",
+	}, false)
+	m.snapshot.Models = []config.DiscoveredModel{{
+		Path:        "/models/vision.gguf",
+		DisplayName: "vision",
+		MMProjPaths: []string{"/models/mmproj-a.gguf"},
+	}}
+	m.editor.args.MoveEnd()
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	got := next.(*model)
+	if got.editor.args.Value() != "--mmproj /models/mmproj-a.gguf" {
+		t.Fatalf("expected mmproj completion after long flag, got %q", got.editor.args.Value())
+	}
+}
+
+func TestTabCyclesMMProjValueCompletions(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{
+		ModelPath: "/models/vision.gguf",
+		ArgsText:  "-mm ",
+	}, false)
+	m.snapshot.Models = []config.DiscoveredModel{{
+		Path:        "/models/vision.gguf",
+		DisplayName: "vision",
+		MMProjPaths: []string{"/models/mmproj-a.gguf", "/models/mmproj-b.gguf"},
+	}}
+	m.editor.args.MoveEnd()
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	got := next.(*model)
+	first := got.editor.args.Value()
+
+	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	got = next.(*model)
+	second := got.editor.args.Value()
+	if first == second {
+		t.Fatalf("expected second tab to cycle mmproj candidates, still got %q", second)
+	}
+
+	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab, Mod: tea.ModShift}))
+	got = next.(*model)
+	if got.editor.args.Value() != first {
+		t.Fatalf("expected shift+tab to cycle back, got %q want %q", got.editor.args.Value(), first)
+	}
+}
+
+func TestMMProjCompletionFiltersByTypedPrefix(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{
+		ModelPath: "/models/vision.gguf",
+		ArgsText:  "-mm mmproj-m",
+	}, false)
+	m.snapshot.Models = []config.DiscoveredModel{{
+		Path:        "/models/vision.gguf",
+		DisplayName: "vision",
+		MMProjPaths: []string{"/models/mmproj-extra.gguf", "/models/mmproj-model.gguf"},
+	}}
+	m.editor.args.MoveEnd()
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	got := next.(*model)
+	if got.editor.args.Value() != "-mm /models/mmproj-model.gguf" {
+		t.Fatalf("expected prefix-filtered mmproj completion, got %q", got.editor.args.Value())
+	}
+}
+
+func TestMMProjCompletionDoesNotTriggerForOtherFlags(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"-mmu ",
+		"--mmproj-auto ",
+		"--no-mmproj ",
+		"--temp ",
+	}
+
+	for _, args := range tests {
+		m := newModel(context.Background(), nil)
+		m.focus = focusDetailArgs
+		m.editor = newBookmarkEditor(config.Bookmark{
+			ModelPath: "/models/vision.gguf",
+			ArgsText:  args,
+		}, false)
+		m.snapshot.Models = []config.DiscoveredModel{{
+			Path:        "/models/vision.gguf",
+			DisplayName: "vision",
+			MMProjPaths: []string{"/models/mmproj-a.gguf"},
+		}}
+		m.editor.args.MoveEnd()
+
+		next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+		got := next.(*model)
+		if strings.Contains(got.editor.args.Value(), "/models/mmproj-a.gguf") {
+			t.Fatalf("unexpected mmproj completion for %q: %q", args, got.editor.args.Value())
+		}
+		if completionTextsContain(got.editor.completion.candidates, "/models/mmproj-a.gguf") {
+			t.Fatalf("unexpected mmproj candidate for %q", args)
+		}
+	}
+}
+
+func TestMMProjCompletionDoesNotActivateWithoutCandidates(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{
+		ModelPath: "/models/vision.gguf",
+		ArgsText:  "-mm ",
+	}, false)
+	m.snapshot.Models = []config.DiscoveredModel{{
+		Path:        "/models/vision.gguf",
+		DisplayName: "vision",
+	}}
+	m.editor.args.MoveEnd()
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	got := next.(*model)
+	if got.editor.args.Value() != "-mm " {
+		t.Fatalf("expected args to remain unchanged, got %q", got.editor.args.Value())
+	}
+	if got.editor.completion.active {
+		t.Fatalf("did not expect active completion state")
+	}
+}
+
+func TestWindowsMMProjFormattingAndPrefixMatching(t *testing.T) {
+	t.Parallel()
+
+	path := `C:\Models\Vision Path\MMProj-F16.gguf`
+	if got, want := formatMMProjCompletionPathForOS(path, "windows"), `'`+path+`'`; got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+	if !matchesMMProjPrefix(`'c:\models\vision path\mmp`, path, "windows") {
+		t.Fatalf("expected case-insensitive full-path match on Windows")
+	}
+	if !matchesMMProjPrefix("mmproj-f", path, "windows") {
+		t.Fatalf("expected case-insensitive basename match on Windows")
+	}
+}
+
 func TestTypingSingleHyphenShowsPassiveArgSuggestions(t *testing.T) {
 	t.Parallel()
 

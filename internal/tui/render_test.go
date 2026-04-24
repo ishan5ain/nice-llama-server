@@ -92,6 +92,34 @@ func TestArgsCompletionRendersInlineGhostOptions(t *testing.T) {
 	}
 }
 
+func TestMMProjCompletionRendersInlineGhostOptions(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.focus = focusDetailArgs
+	m.editor = newBookmarkEditor(config.Bookmark{
+		ModelPath: "/models/vision.gguf",
+		ArgsText:  "-mm ",
+	}, false)
+	m.snapshot.Models = []config.DiscoveredModel{{
+		Path:        "/models/vision.gguf",
+		DisplayName: "vision",
+		MMProjPaths: []string{"/models/mmproj-a.gguf", "/models/mmproj-b.gguf"},
+	}}
+	m.editor.args.MoveEnd()
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	got := next.(*model)
+
+	rendered := ansi.Strip(strings.Join(got.renderDetailLines(80, 10), "\n"))
+	if !strings.Contains(rendered, "/models/mmproj-a.gguf") {
+		t.Fatalf("expected selected mmproj completion in args editor: %q", rendered)
+	}
+	if !strings.Contains(rendered, "/models/mmproj-b.gguf") {
+		t.Fatalf("expected alternate mmproj ghost completion in args editor: %q", rendered)
+	}
+}
+
 func TestPassiveSingleHyphenCompletionRendersInlineGhostOptions(t *testing.T) {
 	t.Parallel()
 
