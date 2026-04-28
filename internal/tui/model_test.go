@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -226,7 +227,7 @@ func TestTabCompletesMMProjValueAfterShortFlag(t *testing.T) {
 	if cmd != nil {
 		t.Fatalf("tab completion should not trigger a command")
 	}
-	if got.editor.args.Value() != "-mm /models/mmproj-a.gguf" {
+	if got.editor.args.Value() != expectedMMProjArgValue("-mm", "/models/mmproj-a.gguf") {
 		t.Fatalf("expected first mmproj candidate, got %q", got.editor.args.Value())
 	}
 	if !got.editor.completion.active {
@@ -252,7 +253,7 @@ func TestTabCompletesMMProjValueAfterLongFlag(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(*model)
-	if got.editor.args.Value() != "--mmproj /models/mmproj-a.gguf" {
+	if got.editor.args.Value() != expectedMMProjArgValue("--mmproj", "/models/mmproj-a.gguf") {
 		t.Fatalf("expected mmproj completion after long flag, got %q", got.editor.args.Value())
 	}
 }
@@ -309,9 +310,13 @@ func TestMMProjCompletionFiltersByTypedPrefix(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(*model)
-	if got.editor.args.Value() != "-mm /models/mmproj-model.gguf" {
+	if got.editor.args.Value() != expectedMMProjArgValue("-mm", "/models/mmproj-model.gguf") {
 		t.Fatalf("expected prefix-filtered mmproj completion, got %q", got.editor.args.Value())
 	}
+}
+
+func expectedMMProjArgValue(flag, path string) string {
+	return flag + " " + formatMMProjCompletionPathForOS(path, runtime.GOOS)
 }
 
 func TestMMProjCompletionDoesNotTriggerForOtherFlags(t *testing.T) {
