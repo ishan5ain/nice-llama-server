@@ -28,6 +28,7 @@ The binary has two modes:
 
 - default mode: attach to or start a local background controller, then open the TUI
 - `controller` mode: run only the controller HTTP service
+- `proxy` mode: run a standalone authenticated inference proxy in front of an existing `llama-server`
 
 The controller is responsible for:
 
@@ -81,6 +82,7 @@ Implemented:
 - manual free-form args editing
 - health-check-based readiness detection
 - graceful unload with force-kill fallback
+- standalone proxy mode for remote multi-user inference access
 - macOS development workflow
 - Windows cross-build and Windows runtime validation
 
@@ -124,6 +126,7 @@ Default output:
 
 ```text
 dist/nice-llama-server-windows-amd64.exe
+```
 
 ### Build a macOS binary from macOS host
 
@@ -145,6 +148,24 @@ You can also specify a custom output path and/or architecture:
 ./scripts/build-macos.sh ./dist/custom-name
 # or
 ./scripts/build-macos.sh ./dist/custom-name arm64
+```
+
+### Build a Raspberry Pi OS 64-bit binary
+
+```bash
+./scripts/build-raspbian-arm64.sh
+```
+
+Default output:
+
+```text
+dist/nice-llama-server-raspbian-arm64
+```
+
+You can also choose a custom output path:
+
+```bash
+./scripts/build-raspbian-arm64.sh ./dist/custom-pi-name
 ```
 
 You can also choose a custom output path:
@@ -227,6 +248,7 @@ You can pass multiple model roots:
 ```text
 nice-llama-server [model-dir...]
 nice-llama-server controller [model-dir...]
+nice-llama-server proxy --listen <addr> --upstream <url> --api-keys <path> --usage-log <path> [--tailscale-only]
 ```
 
 Supported flags:
@@ -235,6 +257,55 @@ Supported flags:
 - `--state-dir <path>`: override the app state directory
 - `--controller-url <url>`: attach directly to an existing controller
 - `--controller-token <token>`: authenticate to an existing controller directly
+- `proxy --listen <addr>`: bind the standalone proxy to the provided address
+- `proxy --upstream <url>`: forward to an already-running `llama-server` base URL
+- `proxy --api-keys <path>`: read plaintext bearer keys and per-user limits from a JSON file
+- `proxy --usage-log <path>`: append per-request JSONL usage records
+- `proxy --tailscale-only`: reject clients outside the Tailscale IPv4/IPv6 ranges
+
+## Proxy Mode
+
+Proxy mode is intentionally separate from the controller and TUI. It does not load models, switch bookmarks, or manage `llama-server` lifecycle. It fronts one already-running upstream `llama-server` and exposes:
+
+- `GET /health`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+
+Example:
+
+```bash
+./dist/nice-llama-server proxy \
+  --listen 100.64.0.10:8088 \
+  --upstream http://127.0.0.1:8080 \
+  --api-keys ./proxy.keys.json \
+  --usage-log ./usage.jsonl \
+  --tailscale-only
+```
+
+Example API key config:
+
+```json
+{
+  "users": [
+    {
+      "name": "alice",
+      "api_key": "nls_alice_secret",
+      "rpm": 30,
+      "max_tokens": 2048,
+      "allowed_models": ["gemma-3-4b-it", "gpt-3.5-turbo"]
+    }
+  ]
+}
+```
+
+Notes:
+
+- bearer keys are stored in plaintext in the JSON file; protect the file with OS permissions
+- `/v1/models` is filtered by each user’s `allowed_models`
+- set `allowed_models` to `["*"]` to allow any upstream model for that user
+- `POST /v1/chat/completions` enforces per-user RPM, allowed models, request-size limits, and requested token-budget limits
+- `--tailscale-only` accepts Tailscale IPv4 `100.64.0.0/10` and Tailscale IPv6 `fd7a:115c:a1e0::/48`
+- usage records are appended as JSONL, including denied requests and streamed responses
 
 ## Running Only the Controller
 

@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"nice-llama-server/internal/config"
 	"nice-llama-server/internal/controller"
+	"nice-llama-server/internal/proxy"
 	"nice-llama-server/internal/tui"
 )
 
@@ -23,6 +25,11 @@ type cliOptions struct {
 	printControllerInfo bool
 	llamaServerBin      string
 	modelRoots          []string
+	proxyListen         string
+	proxyUpstream       string
+	proxyAPIKeysPath    string
+	proxyUsageLogPath   string
+	proxyTailscaleOnly  bool
 }
 
 func Run(ctx context.Context, argv []string) error {
@@ -34,6 +41,8 @@ func Run(ctx context.Context, argv []string) error {
 	switch opts.mode {
 	case "controller":
 		return runControllerMode(ctx, opts)
+	case "proxy":
+		return runProxyMode(ctx, opts)
 	default:
 		return runTUIMode(ctx, opts)
 	}
@@ -42,27 +51,75 @@ func Run(ctx context.Context, argv []string) error {
 func parseArgs(argv []string) (cliOptions, error) {
 	opts := cliOptions{}
 	args := argv
-	if len(args) > 0 && args[0] == "controller" {
-		opts.mode = "controller"
-		args = args[1:]
+	if len(args) > 0 {
+		switch args[0] {
+		case "controller", "proxy":
+			opts.mode = args[0]
+			args = args[1:]
+		}
 	}
 
 	fs := flag.NewFlagSet("nice-llama-server", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	fs.StringVar(&opts.stateDir, "state-dir", "", "override the state directory")
-	fs.StringVar(&opts.llamaServerBin, "llama-server-bin", "", "path to llama-server executable")
-	if opts.mode == "controller" {
-		fs.BoolVar(&opts.printControllerInfo, "print-controller-info", false, "print controller URL and token after startup")
-	} else {
-		fs.StringVar(&opts.controllerURL, "controller-url", "", "connect to a running controller directly")
-		fs.StringVar(&opts.controllerToken, "controller-token", "", "authenticate to the controller directly")
+	switch opts.mode {
+	case "controller":
+		parseControllerFlags(fs, &opts)
+	case "proxy":
+		parseProxyFlags(fs, &opts)
+	default:
+		parseTUIFlags(fs, &opts)
 	}
 	if err := fs.Parse(args); err != nil {
 		return cliOptions{}, err
 	}
-
 	opts.modelRoots = fs.Args()
+	if err := validateCLIOptions(opts); err != nil {
+		return cliOptions{}, err
+	}
 	return opts, nil
+}
+
+func parseTUIFlags(fs *flag.FlagSet, opts *cliOptions) {
+	fs.StringVar(&opts.stateDir, "state-dir", "", "override the state directory")
+	fs.StringVar(&opts.llamaServerBin, "llama-server-bin", "", "path to llama-server executable")
+	fs.StringVar(&opts.controllerURL, "controller-url", "", "connect to a running controller directly")
+	fs.StringVar(&opts.controllerToken, "controller-token", "", "authenticate to the controller directly")
+}
+
+func parseControllerFlags(fs *flag.FlagSet, opts *cliOptions) {
+	fs.StringVar(&opts.stateDir, "state-dir", "", "override the state directory")
+	fs.StringVar(&opts.llamaServerBin, "llama-server-bin", "", "path to llama-server executable")
+	fs.BoolVar(&opts.printControllerInfo, "print-controller-info", false, "print controller URL and token after startup")
+}
+
+func parseProxyFlags(fs *flag.FlagSet, opts *cliOptions) {
+	fs.StringVar(&opts.proxyListen, "listen", "", "listen address for the proxy")
+	fs.StringVar(&opts.proxyUpstream, "upstream", "", "base URL for the upstream llama-server")
+	fs.StringVar(&opts.proxyAPIKeysPath, "api-keys", "", "path to the proxy API key JSON file")
+	fs.StringVar(&opts.proxyUsageLogPath, "usage-log", "", "path to the usage log JSONL file")
+	fs.BoolVar(&opts.proxyTailscaleOnly, "tailscale-only", false, "restrict access to Tailscale client IPs")
+}
+
+func validateCLIOptions(opts cliOptions) error {
+	if opts.mode != "proxy" {
+		return nil
+	}
+	if len(opts.modelRoots) > 0 {
+		return errors.New("proxy mode does not accept model roots")
+	}
+	if strings.TrimSpace(opts.proxyListen) == "" {
+		return errors.New("--listen is required in proxy mode")
+	}
+	if strings.TrimSpace(opts.proxyUpstream) == "" {
+		return errors.New("--upstream is required in proxy mode")
+	}
+	if strings.TrimSpace(opts.proxyAPIKeysPath) == "" {
+		return errors.New("--api-keys is required in proxy mode")
+	}
+	if strings.TrimSpace(opts.proxyUsageLogPath) == "" {
+		return errors.New("--usage-log is required in proxy mode")
+	}
+	return nil
 }
 
 func runControllerMode(ctx context.Context, opts cliOptions) error {
@@ -81,6 +138,19 @@ func runControllerMode(ctx context.Context, opts cliOptions) error {
 		fmt.Fprint(os.Stdout, controllerInfoLine(info))
 	}
 	return nil
+}
+
+func runProxyMode(ctx context.Context, opts cliOptions) error {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+
+	return proxy.Serve(ctx, proxy.Options{
+		ListenAddr:    opts.proxyListen,
+		UpstreamURL:   opts.proxyUpstream,
+		APIKeysPath:   opts.proxyAPIKeysPath,
+		UsageLogPath:  opts.proxyUsageLogPath,
+		TailscaleOnly: opts.proxyTailscaleOnly,
+	})
 }
 
 func runTUIMode(ctx context.Context, opts cliOptions) error {
