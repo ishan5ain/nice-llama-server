@@ -3,6 +3,7 @@
 Lightweight TUI wrapper around `llama-server` for managing local GGUF model launch commands.
 
 The current MVP is built for a practical workflow:
+
 - develop and iterate on macOS
 - run the compiled binary on a Windows host with the real GPU and model files
 - SSH into that Windows host and use the TUI there
@@ -13,6 +14,7 @@ The current MVP is built for a practical workflow:
 The app manages one active `llama-server` instance at a time.
 
 It provides:
+
 - bookmark-style saved launch configurations
 - recursive GGUF model discovery from one or more model roots
 - model-name autocomplete in the TUI
@@ -23,10 +25,12 @@ It provides:
 ## Current Architecture
 
 The binary has two modes:
+
 - default mode: attach to or start a local background controller, then open the TUI
 - `controller` mode: run only the controller HTTP service
 
 The controller is responsible for:
+
 - storing bookmark and config state
 - scanning model roots for `.gguf` files
 - launching `llama-server`
@@ -38,6 +42,7 @@ The TUI is a client for that controller.
 ### Controller and TUI lifecycle
 
 On first launch in default mode, the app effectively brings up both parts of the system:
+
 - it checks for a healthy controller using the local `controller.json`
 - if no healthy controller is running, it launches one in the background
 - once the controller is reachable, it opens the TUI in the foreground and connects to it
@@ -49,6 +54,7 @@ nice-llama-server [model-dir...]
 ```
 
 means:
+
 - background controller process
 - foreground TUI process
 
@@ -57,6 +63,7 @@ If a controller is already running and healthy, the command only opens the TUI a
 ### What the controller exposes
 
 The controller is a local HTTP API with auth token protection. The TUI talks to it for:
+
 - state and bookmark CRUD
 - rescans
 - model load and unload
@@ -67,6 +74,7 @@ The controller currently binds to loopback only (`127.0.0.1`), so it is intentio
 ## Current Scope
 
 Implemented:
+
 - one active `llama-server` process at a time
 - bookmark CRUD
 - filename-based model selection
@@ -77,6 +85,7 @@ Implemented:
 - Windows cross-build and Windows runtime validation
 
 Not implemented yet:
+
 - router mode
 - concurrent model instances
 - Hugging Face browsing / downloads
@@ -92,6 +101,7 @@ For now, `psmux` is the recommended solution for SSH session persistence.
 - one or more directories containing `.gguf` files
 
 Validated target workflow:
+
 - macOS development machine
 - Windows 11 host running `llama-server`
 - SSH access from macOS to Windows
@@ -185,6 +195,7 @@ Or pass explicit paths:
 ```
 
 Note:
+
 - `.env` is gitignored so personal host details do not get published
 - `REMOTE_PATH` remains optional
 
@@ -219,6 +230,7 @@ nice-llama-server controller [model-dir...]
 ```
 
 Supported flags:
+
 - `--llama-server-bin <path>`: override the `llama-server` executable path
 - `--state-dir <path>`: override the app state directory
 - `--controller-url <url>`: attach directly to an existing controller
@@ -262,6 +274,7 @@ To run only the TUI, point it at an already running controller:
 ```
 
 This works when:
+
 - a controller is already running
 - the TUI can reach that controller URL
 - the TUI also has a usable controller token
@@ -271,14 +284,17 @@ If `--controller-token` is omitted, the app will still try to load a matching to
 ## State Storage
 
 By default, state lives under the user config directory:
+
 - macOS: `~/Library/Application Support/nice-llama-server`
 - Windows: `%AppData%\nice-llama-server`
 
 The controller stores:
+
 - `state.json`: bookmarks and config
 - `controller.json`: active controller discovery info for the TUI
 
 `controller.json` contains:
+
 - controller URL
 - auth token
 - controller PID
@@ -291,6 +307,7 @@ The TUI uses this file to discover and authenticate to an already running contro
 This is possible, but there is an important constraint: the controller binds to `127.0.0.1` on the remote host. That means your local TUI cannot talk to it directly over the network.
 
 To do this today, you need:
+
 - a controller running on the remote host
 - an SSH tunnel from your local machine to the remote controller port
 - the remote controller token
@@ -298,6 +315,7 @@ To do this today, you need:
 ### Recommended simple workflow
 
 The simplest validated workflow is still:
+
 - SSH into the remote host
 - run the normal app there
 - keep the session alive with `psmux`
@@ -306,13 +324,13 @@ The simplest validated workflow is still:
 
 1. Start only the controller on the remote host:
 
-```powershell
-.\nice-llama-server.exe controller `
-  --print-controller-info `
-  --llama-server-bin "C:\path\to\llama-server.exe" `
-  "C:\path\to\models"
-```
-
+  ```powershell
+  .\nice-llama-server.exe controller `
+    --print-controller-info `
+    --llama-server-bin "C:\path\to\llama-server.exe" `
+    "C:\path\to\models"
+  ```
+  
 2. Note the printed controller URL and token, or read them from the remote `%AppData%\nice-llama-server\controller.json`.
 
 3. Create an SSH tunnel from your local machine to the remote controller port:
@@ -352,10 +370,12 @@ The app does not manage the SSH tunnel in this workflow. You create and keep the
 ### Editor
 
 The bookmark detail pane has two editable fields:
+
 - bookmark name
 - raw `llama-server` args
 
 Key behavior:
+
 - `e`: enter edit mode with focus on bookmark name
 - `Up` / `Down`: navigate the list or move between bookmark name and args
 - `Enter`: move from name to args, or insert a newline in args
@@ -366,6 +386,7 @@ Key behavior:
 ## Bookmark Format
 
 Each bookmark stores:
+
 - name
 - resolved full model path
 - free-form multiline args text
@@ -398,6 +419,18 @@ That is the recommended workflow today if you want the session to survive SSH di
 go test ./...
 ```
 
+Root-level integration/black-box tests are now grouped under:
+
+```text
+tests/
+```
+
+Run only that suite with:
+
+```bash
+go test ./tests -v
+```
+
 ### Cross-build for Windows
 
 ```bash
@@ -407,6 +440,7 @@ GOOS=windows GOARCH=amd64 go build ./...
 ## Validation Status
 
 Validated:
+
 - macOS development build/test workflow
 - Windows cross-build
 - Windows host manual load/unload flow
@@ -414,6 +448,7 @@ Validated:
 - SSH persistence workflow using `psmux`
 
 Still intended for iteration:
+
 - richer UX polish
 - better visual hierarchy
 - more guided launch configuration
@@ -421,6 +456,7 @@ Still intended for iteration:
 ## Roadmap
 
 Likely next phase:
+
 - improve UX and interaction patterns
 - better model browsing within discovered roots
 - better bookmark editing ergonomics
