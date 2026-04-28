@@ -15,7 +15,9 @@ func Scan(roots []string) ([]config.DiscoveredModel, error) {
 	}
 
 	var models []config.DiscoveredModel
-	seen := map[string]struct{}{}
+	seenModels := map[string]struct{}{}
+	seenMMProj := map[string]struct{}{}
+	mmprojByDir := map[string][]string{}
 
 	for _, root := range roots {
 		root := root
@@ -31,23 +33,31 @@ func Scan(roots []string) ([]config.DiscoveredModel, error) {
 			if !strings.EqualFold(filepath.Ext(name), ".gguf") {
 				return nil
 			}
-			if strings.HasPrefix(strings.ToLower(name), "mmproj") {
-				return nil
-			}
 
 			stem := strings.TrimSuffix(name, filepath.Ext(name))
-			if isShard(stem) && !strings.Contains(stem, "-00001-of-") {
-				return nil
-			}
-
 			abs, err := filepath.Abs(path)
 			if err != nil {
 				abs = path
 			}
-			if _, ok := seen[abs]; ok {
+
+			if isMMProjFile(name) {
+				if _, ok := seenMMProj[abs]; ok {
+					return nil
+				}
+				seenMMProj[abs] = struct{}{}
+				dir := filepath.Dir(abs)
+				mmprojByDir[dir] = append(mmprojByDir[dir], abs)
 				return nil
 			}
-			seen[abs] = struct{}{}
+
+			if isShard(stem) && !strings.Contains(stem, "-00001-of-") {
+				return nil
+			}
+
+			if _, ok := seenModels[abs]; ok {
+				return nil
+			}
+			seenModels[abs] = struct{}{}
 
 			models = append(models, config.DiscoveredModel{
 				Path:        abs,
@@ -62,16 +72,35 @@ func Scan(roots []string) ([]config.DiscoveredModel, error) {
 		}
 	}
 
+	for dir, paths := range mmprojByDir {
+		slices.SortFunc(paths, compareFoldedStrings)
+		mmprojByDir[dir] = paths
+	}
+	for i := range models {
+		dir := filepath.Dir(models[i].Path)
+		if paths := mmprojByDir[dir]; len(paths) > 0 {
+			models[i].MMProjPaths = append([]string(nil), paths...)
+		}
+	}
+
 	slices.SortFunc(models, func(a, b config.DiscoveredModel) int {
 		if a.GroupKey != b.GroupKey {
-			return strings.Compare(strings.ToLower(a.GroupKey), strings.ToLower(b.GroupKey))
+			return compareFoldedStrings(a.GroupKey, b.GroupKey)
 		}
 		if a.DisplayName != b.DisplayName {
-			return strings.Compare(strings.ToLower(a.DisplayName), strings.ToLower(b.DisplayName))
+			return compareFoldedStrings(a.DisplayName, b.DisplayName)
 		}
-		return strings.Compare(strings.ToLower(a.Path), strings.ToLower(b.Path))
+		return compareFoldedStrings(a.Path, b.Path)
 	})
 	return models, nil
+}
+
+func isMMProjFile(name string) bool {
+	return strings.HasPrefix(strings.ToLower(name), "mmproj")
+}
+
+func compareFoldedStrings(a, b string) int {
+	return strings.Compare(strings.ToLower(a), strings.ToLower(b))
 }
 
 func isShard(stem string) bool {

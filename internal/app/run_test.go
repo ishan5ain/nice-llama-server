@@ -56,6 +56,59 @@ func TestParseArgsControllerPrintInfo(t *testing.T) {
 	}
 }
 
+func TestParseArgsProxyMode(t *testing.T) {
+	t.Parallel()
+
+	opts, err := parseArgs([]string{
+		"proxy",
+		"--listen", "100.64.0.1:8088",
+		"--upstream", "http://127.0.0.1:8080/api",
+		"--api-keys", "/tmp/proxy.keys.json",
+		"--usage-log", "/tmp/usage.jsonl",
+		"--tailscale-only",
+	})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+	if opts.mode != "proxy" {
+		t.Fatalf("unexpected mode: %q", opts.mode)
+	}
+	if opts.proxyListen != "100.64.0.1:8088" || opts.proxyUpstream != "http://127.0.0.1:8080/api" {
+		t.Fatalf("unexpected proxy args: %#v", opts)
+	}
+	if !opts.proxyTailscaleOnly {
+		t.Fatalf("expected tailscale-only to be set")
+	}
+}
+
+func TestParseArgsProxyModeRequiresFlags(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseArgs([]string{"proxy", "--listen", "127.0.0.1:8088"})
+	if err == nil {
+		t.Fatalf("expected missing flag error")
+	}
+	if !strings.Contains(err.Error(), "--upstream") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseArgsProxyModeRejectsModelRoots(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseArgs([]string{
+		"proxy",
+		"--listen", "127.0.0.1:8088",
+		"--upstream", "http://127.0.0.1:8080",
+		"--api-keys", "/tmp/proxy.keys.json",
+		"--usage-log", "/tmp/usage.jsonl",
+		"/models",
+	})
+	if err == nil {
+		t.Fatalf("expected proxy model root rejection")
+	}
+}
+
 func TestResolveControllerInfoUsesExplicitToken(t *testing.T) {
 	t.Parallel()
 

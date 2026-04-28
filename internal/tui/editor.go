@@ -84,6 +84,12 @@ type tokenContext struct {
 	token  string
 }
 
+type lineToken struct {
+	start int
+	end   int
+	text  string
+}
+
 type textBuffer struct {
 	lines     [][]rune
 	row       int
@@ -396,22 +402,68 @@ func (b *textBuffer) TokenAtCursor() tokenContext {
 		col = len(line)
 	}
 
-	start := col
-	for start > 0 && !unicode.IsSpace(line[start-1]) {
-		start--
-	}
-	end := col
-	for end < len(line) && !unicode.IsSpace(line[end]) {
-		end++
+	for _, token := range scanLineTokens(line) {
+		if col < token.start || col > token.end {
+			continue
+		}
+		return tokenContext{
+			row:    row,
+			start:  token.start,
+			end:    token.end,
+			prefix: string(line[token.start:col]),
+			token:  token.text,
+		}
 	}
 
 	return tokenContext{
 		row:    row,
-		start:  start,
-		end:    end,
-		prefix: string(line[start:col]),
-		token:  string(line[start:end]),
+		start:  col,
+		end:    col,
+		prefix: "",
+		token:  "",
 	}
+}
+
+func scanLineTokens(line []rune) []lineToken {
+	tokens := make([]lineToken, 0)
+	col := 0
+	for col < len(line) {
+		for col < len(line) && unicode.IsSpace(line[col]) {
+			col++
+		}
+		if col >= len(line) {
+			break
+		}
+
+		start := col
+		var quote rune
+		escaped := false
+		for col < len(line) {
+			r := line[col]
+			switch {
+			case escaped:
+				escaped = false
+			case r == '\\' && quote != '\'':
+				escaped = true
+			case quote != 0:
+				if r == quote {
+					quote = 0
+				}
+			case r == '\'' || r == '"':
+				quote = r
+			case unicode.IsSpace(r):
+				goto tokenDone
+			}
+			col++
+		}
+	tokenDone:
+		tokens = append(tokens, lineToken{
+			start: start,
+			end:   col,
+			text:  string(line[start:col]),
+		})
+	}
+	return tokens
 }
 
 func withCursor(text string, col int) string {

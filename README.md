@@ -3,6 +3,7 @@
 Lightweight TUI wrapper around `llama-server` for managing local GGUF model launch commands.
 
 The current MVP is built for a practical workflow:
+
 - develop and iterate on macOS
 - run the compiled binary on a Windows host with the real GPU and model files
 - SSH into that Windows host and use the TUI there
@@ -13,6 +14,7 @@ The current MVP is built for a practical workflow:
 The app manages one active `llama-server` instance at a time.
 
 It provides:
+
 - bookmark-style saved launch configurations
 - recursive GGUF model discovery from one or more model roots
 - model-name autocomplete in the TUI
@@ -23,10 +25,13 @@ It provides:
 ## Current Architecture
 
 The binary has two modes:
+
 - default mode: attach to or start a local background controller, then open the TUI
 - `controller` mode: run only the controller HTTP service
+- `proxy` mode: run a standalone authenticated inference proxy in front of an existing `llama-server`
 
 The controller is responsible for:
+
 - storing bookmark and config state
 - scanning model roots for `.gguf` files
 - launching `llama-server`
@@ -38,6 +43,7 @@ The TUI is a client for that controller.
 ### Controller and TUI lifecycle
 
 On first launch in default mode, the app effectively brings up both parts of the system:
+
 - it checks for a healthy controller using the local `controller.json`
 - if no healthy controller is running, it launches one in the background
 - once the controller is reachable, it opens the TUI in the foreground and connects to it
@@ -49,6 +55,7 @@ nice-llama-server [model-dir...]
 ```
 
 means:
+
 - background controller process
 - foreground TUI process
 
@@ -57,6 +64,7 @@ If a controller is already running and healthy, the command only opens the TUI a
 ### What the controller exposes
 
 The controller is a local HTTP API with auth token protection. The TUI talks to it for:
+
 - state and bookmark CRUD
 - rescans
 - model load and unload
@@ -67,16 +75,19 @@ The controller currently binds to loopback only (`127.0.0.1`), so it is intentio
 ## Current Scope
 
 Implemented:
+
 - one active `llama-server` process at a time
 - bookmark CRUD
 - filename-based model selection
 - manual free-form args editing
 - health-check-based readiness detection
 - graceful unload with force-kill fallback
+- standalone proxy mode for remote multi-user inference access
 - macOS development workflow
 - Windows cross-build and Windows runtime validation
 
 Not implemented yet:
+
 - router mode
 - concurrent model instances
 - Hugging Face browsing / downloads
@@ -92,6 +103,7 @@ For now, `psmux` is the recommended solution for SSH session persistence.
 - one or more directories containing `.gguf` files
 
 Validated target workflow:
+
 - macOS development machine
 - Windows 11 host running `llama-server`
 - SSH access from macOS to Windows
@@ -114,6 +126,7 @@ Default output:
 
 ```text
 dist/nice-llama-server-windows-amd64.exe
+```
 
 ### Build a macOS binary from macOS host
 
@@ -135,6 +148,24 @@ You can also specify a custom output path and/or architecture:
 ./scripts/build-macos.sh ./dist/custom-name
 # or
 ./scripts/build-macos.sh ./dist/custom-name arm64
+```
+
+### Build a Raspberry Pi OS 64-bit binary
+
+```bash
+./scripts/build-raspbian-arm64.sh
+```
+
+Default output:
+
+```text
+dist/nice-llama-server-raspbian-arm64
+```
+
+You can also choose a custom output path:
+
+```bash
+./scripts/build-raspbian-arm64.sh ./dist/custom-pi-name
 ```
 
 You can also choose a custom output path:
@@ -185,6 +216,7 @@ Or pass explicit paths:
 ```
 
 Note:
+
 - `.env` is gitignored so personal host details do not get published
 - `REMOTE_PATH` remains optional
 
@@ -216,13 +248,64 @@ You can pass multiple model roots:
 ```text
 nice-llama-server [model-dir...]
 nice-llama-server controller [model-dir...]
+nice-llama-server proxy --listen <addr> --upstream <url> --api-keys <path> --usage-log <path> [--tailscale-only]
 ```
 
 Supported flags:
+
 - `--llama-server-bin <path>`: override the `llama-server` executable path
 - `--state-dir <path>`: override the app state directory
 - `--controller-url <url>`: attach directly to an existing controller
 - `--controller-token <token>`: authenticate to an existing controller directly
+- `proxy --listen <addr>`: bind the standalone proxy to the provided address
+- `proxy --upstream <url>`: forward to an already-running `llama-server` base URL
+- `proxy --api-keys <path>`: read plaintext bearer keys and per-user limits from a JSON file
+- `proxy --usage-log <path>`: append per-request JSONL usage records
+- `proxy --tailscale-only`: reject clients outside the Tailscale IPv4/IPv6 ranges
+
+## Proxy Mode
+
+Proxy mode is intentionally separate from the controller and TUI. It does not load models, switch bookmarks, or manage `llama-server` lifecycle. It fronts one already-running upstream `llama-server` and exposes:
+
+- `GET /health`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+
+Example:
+
+```bash
+./dist/nice-llama-server proxy \
+  --listen 100.64.0.10:8088 \
+  --upstream http://127.0.0.1:8080 \
+  --api-keys ./proxy.keys.json \
+  --usage-log ./usage.jsonl \
+  --tailscale-only
+```
+
+Example API key config:
+
+```json
+{
+  "users": [
+    {
+      "name": "alice",
+      "api_key": "nls_alice_secret",
+      "rpm": 30,
+      "max_tokens": 2048,
+      "allowed_models": ["gemma-3-4b-it", "gpt-3.5-turbo"]
+    }
+  ]
+}
+```
+
+Notes:
+
+- bearer keys are stored in plaintext in the JSON file; protect the file with OS permissions
+- `/v1/models` is filtered by each user’s `allowed_models`
+- set `allowed_models` to `["*"]` to allow any upstream model for that user
+- `POST /v1/chat/completions` enforces per-user RPM, allowed models, request-size limits, and requested token-budget limits
+- `--tailscale-only` accepts Tailscale IPv4 `100.64.0.0/10` and Tailscale IPv6 `fd7a:115c:a1e0::/48`
+- usage records are appended as JSONL, including denied requests and streamed responses
 
 ## Running Only the Controller
 
@@ -262,6 +345,7 @@ To run only the TUI, point it at an already running controller:
 ```
 
 This works when:
+
 - a controller is already running
 - the TUI can reach that controller URL
 - the TUI also has a usable controller token
@@ -271,14 +355,17 @@ If `--controller-token` is omitted, the app will still try to load a matching to
 ## State Storage
 
 By default, state lives under the user config directory:
+
 - macOS: `~/Library/Application Support/nice-llama-server`
 - Windows: `%AppData%\nice-llama-server`
 
 The controller stores:
+
 - `state.json`: bookmarks and config
 - `controller.json`: active controller discovery info for the TUI
 
 `controller.json` contains:
+
 - controller URL
 - auth token
 - controller PID
@@ -291,6 +378,7 @@ The TUI uses this file to discover and authenticate to an already running contro
 This is possible, but there is an important constraint: the controller binds to `127.0.0.1` on the remote host. That means your local TUI cannot talk to it directly over the network.
 
 To do this today, you need:
+
 - a controller running on the remote host
 - an SSH tunnel from your local machine to the remote controller port
 - the remote controller token
@@ -298,6 +386,7 @@ To do this today, you need:
 ### Recommended simple workflow
 
 The simplest validated workflow is still:
+
 - SSH into the remote host
 - run the normal app there
 - keep the session alive with `psmux`
@@ -306,13 +395,13 @@ The simplest validated workflow is still:
 
 1. Start only the controller on the remote host:
 
-```powershell
-.\nice-llama-server.exe controller `
-  --print-controller-info `
-  --llama-server-bin "C:\path\to\llama-server.exe" `
-  "C:\path\to\models"
-```
-
+  ```powershell
+  .\nice-llama-server.exe controller `
+    --print-controller-info `
+    --llama-server-bin "C:\path\to\llama-server.exe" `
+    "C:\path\to\models"
+  ```
+  
 2. Note the printed controller URL and token, or read them from the remote `%AppData%\nice-llama-server\controller.json`.
 
 3. Create an SSH tunnel from your local machine to the remote controller port:
@@ -352,10 +441,12 @@ The app does not manage the SSH tunnel in this workflow. You create and keep the
 ### Editor
 
 The bookmark detail pane has two editable fields:
+
 - bookmark name
 - raw `llama-server` args
 
 Key behavior:
+
 - `e`: enter edit mode with focus on bookmark name
 - `Up` / `Down`: navigate the list or move between bookmark name and args
 - `Enter`: move from name to args, or insert a newline in args
@@ -366,6 +457,7 @@ Key behavior:
 ## Bookmark Format
 
 Each bookmark stores:
+
 - name
 - resolved full model path
 - free-form multiline args text
@@ -398,6 +490,18 @@ That is the recommended workflow today if you want the session to survive SSH di
 go test ./...
 ```
 
+Root-level integration/black-box tests are now grouped under:
+
+```text
+tests/
+```
+
+Run only that suite with:
+
+```bash
+go test ./tests -v
+```
+
 ### Cross-build for Windows
 
 ```bash
@@ -407,6 +511,7 @@ GOOS=windows GOARCH=amd64 go build ./...
 ## Validation Status
 
 Validated:
+
 - macOS development build/test workflow
 - Windows cross-build
 - Windows host manual load/unload flow
@@ -414,6 +519,7 @@ Validated:
 - SSH persistence workflow using `psmux`
 
 Still intended for iteration:
+
 - richer UX polish
 - better visual hierarchy
 - more guided launch configuration
@@ -421,6 +527,7 @@ Still intended for iteration:
 ## Roadmap
 
 Likely next phase:
+
 - improve UX and interaction patterns
 - better model browsing within discovered roots
 - better bookmark editing ergonomics

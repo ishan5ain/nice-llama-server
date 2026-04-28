@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -31,8 +32,7 @@ func (s *Service) withAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Service) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"ok":true}`))
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Service) handleState(w http.ResponseWriter, r *http.Request) {
@@ -160,14 +160,14 @@ func decodeJSON(r *http.Request, target any) error {
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
-	body, err := json.Marshal(payload)
-	if err != nil {
+	var body bytes.Buffer
+	if err := json.NewEncoder(&body).Encode(payload); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = w.Write(body)
+	_, _ = w.Write(body.Bytes())
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
