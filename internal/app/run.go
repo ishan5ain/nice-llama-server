@@ -126,7 +126,7 @@ func runControllerMode(ctx context.Context, opts cliOptions) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	info, err := controller.Serve(ctx, controller.Options{
+	svc, err := controller.NewService(controller.Options{
 		StateDir:       opts.stateDir,
 		LlamaServerBin: opts.llamaServerBin,
 		ModelRoots:     opts.modelRoots,
@@ -134,10 +134,25 @@ func runControllerMode(ctx context.Context, opts cliOptions) error {
 	if err != nil {
 		return err
 	}
+
+	ln, err := controller.ListenLoopback()
+	if err != nil {
+		return err
+	}
+
+	info, err := svc.Start(ln)
+	if err != nil {
+		return err
+	}
+
 	if opts.printControllerInfo {
 		fmt.Fprint(os.Stdout, controllerInfoLine(info))
 	}
-	return nil
+
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return svc.Shutdown(shutdownCtx)
 }
 
 func runProxyMode(ctx context.Context, opts cliOptions) error {
