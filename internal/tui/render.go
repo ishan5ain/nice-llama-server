@@ -81,7 +81,7 @@ func (m *model) renderBottom(width, height int) string {
 	if m.tabs.SelectedID() == "logs" {
 		content = m.renderLogView(width, contentHeight)
 	} else {
-		content = m.renderBookmarkEditorView(width+6, contentHeight)
+		content = m.renderBookmarkEditorView(width, contentHeight)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content)
 }

@@ -151,6 +151,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.version < m.stateVersion {
 			return m, nil
 		}
+		m.errorMessage = ""
+		m.flashMessage = ""
 		m.stateReady = true
 		m.snapshot = msg.snapshot
 		m.syncSelection()
@@ -160,6 +162,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errorMessage = msg.err.Error()
 			return m, nil
 		}
+		m.errorMessage = ""
 		if len(msg.entries) > 0 {
 			wasAtBottom := m.logView.AtBottom()
 			m.logs = append(m.logs, msg.entries...)

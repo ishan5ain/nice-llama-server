@@ -11,6 +11,9 @@ import (
 )
 
 func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Clear transient flash on any new user interaction
+	m.flashMessage = ""
+
 	// Dialog absorbs ALL input first
 	if m.showDialog {
 		var cmd tea.Cmd
