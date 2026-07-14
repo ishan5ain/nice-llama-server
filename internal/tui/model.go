@@ -76,6 +76,7 @@ type model struct {
 	deleteDialog      dialog.Model
 	showDialog        bool
 	pendingDeleteID   string
+	pendingDiscard    bool
 	ac                autocomplete.Model
 }
 

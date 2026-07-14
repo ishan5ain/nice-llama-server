@@ -249,6 +249,12 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.ac.Blur()
 			return m, nil
 		}
+		if m.editor.Dirty() && !m.pendingDiscard {
+			m.pendingDiscard = true
+			m.errorMessage = "unsaved changes — press Esc again to discard"
+			return m, nil
+		}
+		m.pendingDiscard = false
 		m.editor = nil
 		m.editorScope.Exit(&m.fm)
 		m.ac.SetItems()
