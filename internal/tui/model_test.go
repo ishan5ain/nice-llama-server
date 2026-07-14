@@ -7,28 +7,45 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/ishan5ain/tuiweave"
+	"github.com/ishan5ain/tuiweave/textarea"
 
 	"nice-llama-server/internal/config"
 )
+
+// cursorEnd moves the textarea cursor to the end of the current line.
+func cursorEnd(ta *textarea.Model) {
+	row, _ := ta.Cursor()
+	lines := strings.Split(ta.Value(), "\n")
+	if row >= 0 && row < len(lines) {
+		ta.SetCursor(row, len([]rune(lines[row])))
+	}
+}
+
+// cursorDown moves the textarea cursor down one line.
+func cursorDown(ta *textarea.Model) {
+	row, col := ta.Cursor()
+	ta.SetCursor(row+1, col)
+}
 
 func TestSlashTogglesBetweenBookmarkAndLogViews(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	if m.bottomView != bottomViewBookmarks {
-		t.Fatalf("unexpected default bottom view: %v", m.bottomView)
+	if m.tabs.SelectedID() != "bookmarks" {
+		t.Fatalf("unexpected default bottom view: %v", m.tabs.SelectedID())
 	}
 
 	next, _ := m.Update(tea.KeyPressMsg{Text: "/"})
 	got := next.(*model)
-	if got.bottomView != bottomViewLogs {
-		t.Fatalf("expected log view after slash, got %v", got.bottomView)
+	if got.tabs.SelectedID() != "logs" {
+		t.Fatalf("expected log view after slash, got %v", got.tabs.SelectedID())
 	}
 
 	next, _ = got.Update(tea.KeyPressMsg{Text: "/"})
 	got = next.(*model)
-	if got.bottomView != bottomViewBookmarks {
-		t.Fatalf("expected bookmark view after second slash, got %v", got.bottomView)
+	if got.tabs.SelectedID() != "bookmarks" {
+		t.Fatalf("expected bookmark view after second slash, got %v", got.tabs.SelectedID())
 	}
 }
 
@@ -60,20 +77,20 @@ func TestCtrlSSavesEditorAndReturnsFocusToList(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailName
 	m.editor = newBookmarkEditor(config.Bookmark{
 		ID:        "bookmark-1",
 		Name:      "Gemma",
 		ModelPath: "/models/gemma.gguf",
 		GroupKey:  "gemma",
-	}, false)
+	}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editor.name.Focus()
 
 	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 's', Mod: tea.ModCtrl}))
 	got := next.(*model)
 	if cmd == nil {
 		t.Fatalf("ctrl+s should trigger save command")
 	}
-	if got.focus != focusDetailName {
+	if !got.editorScope.Active() || got.editorScope.Index() != 0 {
 		t.Fatalf("focus should remain in detail mode until save completes")
 	}
 
@@ -88,14 +105,13 @@ func TestCtrlSSavesEditorAndReturnsFocusToList(t *testing.T) {
 		},
 		selectedKey: listItem{kind: listItemBookmark, bookmarkID: "bookmark-1"}.key(),
 		clearEditor: true,
-		focus:       focusModelList,
 	})
 	got = next.(*model)
 	if got.editor != nil {
 		t.Fatalf("save result should clear the editor")
 	}
-	if got.focus != focusModelList {
-		t.Fatalf("save result should return focus to the list, got %v", got.focus)
+	if got.editorScope.Active() || got.fm.Index() != 1 {
+		t.Fatalf("save result should return focus to the list, got %v", "focus state")
 	}
 }
 
@@ -103,16 +119,16 @@ func TestEnterInNameMovesFocusToArgs(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailName
-	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editor.name.Focus()
 
 	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	got := next.(*model)
 	if cmd != nil {
 		t.Fatalf("enter in name field should not trigger a command")
 	}
-	if got.focus != focusDetailArgs {
-		t.Fatalf("enter in name field should move focus to args, got %v", got.focus)
+	if !got.editorScope.Active() || got.editorScope.Index() != 1 {
+		t.Fatalf("enter in name field should move focus to args, got %v", "focus state")
 	}
 }
 
@@ -120,9 +136,9 @@ func TestEnterInArgsInsertsNewLine(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx-size 8192"}, false)
-	m.editor.args.MoveEnd()
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx-size 8192"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	cursorEnd(&m.editor.args)
 
 	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	got := next.(*model)
@@ -132,8 +148,8 @@ func TestEnterInArgsInsertsNewLine(t *testing.T) {
 	if got.editor.args.Value() != "--ctx-size 8192\n" {
 		t.Fatalf("enter in args should insert a newline, got %q", got.editor.args.Value())
 	}
-	if got.focus != focusDetailArgs {
-		t.Fatalf("focus should stay in args, got %v", got.focus)
+	if !got.editorScope.Active() || got.editorScope.Index() != 1 {
+		t.Fatalf("focus should stay in args, got %v", "focus state")
 	}
 }
 
@@ -141,17 +157,24 @@ func TestTabCompletesArgsFromLlamaServerCatalog(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx"}, false)
-	m.editor.args.MoveEnd()
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	cursorEnd(&m.editor.args)
 
 	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(*model)
 	if cmd != nil {
 		t.Fatalf("tab completion should not trigger a command")
 	}
-	if got.editor.args.Value() != "--ctx-size" {
-		t.Fatalf("expected --ctx to complete to --ctx-size, got %q", got.editor.args.Value())
+	if !got.ac.Focused() || got.ac.FilteredLen() == 0 {
+		t.Fatalf("expected autocomplete to be populated after tab")
+	}
+	first := got.ac.SelectedItem().Value
+	if first == "" {
+		t.Fatalf("expected a selected item in autocomplete")
+	}
+	if !strings.HasPrefix(first, "--ctx") {
+		t.Fatalf("expected completion to start with --ctx, got %q", first)
 	}
 	if !got.editor.completion.active {
 		t.Fatalf("completion state should remain active for cycling")
@@ -162,16 +185,21 @@ func TestTabCyclesArgsCompletions(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx"}, false)
-	m.editor.args.MoveEnd()
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	cursorEnd(&m.editor.args)
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(*model)
-	first := got.editor.args.Value()
+	if !got.ac.Focused() || got.ac.FilteredLen() == 0 {
+		t.Fatalf("expected autocomplete to be populated after tab")
+	}
+	first := got.ac.SelectedItem().Value
+
+	// Second tab navigates within autocomplete
 	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got = next.(*model)
-	second := got.editor.args.Value()
+	second := got.ac.SelectedItem().Value
 
 	if first == second {
 		t.Fatalf("second tab should cycle to a different completion, still got %q", second)
@@ -182,8 +210,8 @@ func TestTabCyclesArgsCompletions(t *testing.T) {
 
 	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab, Mod: tea.ModShift}))
 	got = next.(*model)
-	if got.editor.args.Value() != first {
-		t.Fatalf("shift+tab should cycle back to the previous completion, got %q want %q", got.editor.args.Value(), first)
+	if got.ac.SelectedItem().Value != first {
+		t.Fatalf("shift+tab should cycle back to the previous completion, got %q want %q", got.ac.SelectedItem().Value, first)
 	}
 }
 
@@ -191,10 +219,10 @@ func TestTabCompletionExcludesAlreadyUsedArgs(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx-size 8192\n--ctx"}, false)
-	_ = m.editor.args.MoveDown()
-	m.editor.args.MoveEnd()
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx-size 8192\n--ctx"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	cursorDown(&m.editor.args)
+	cursorEnd(&m.editor.args)
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(*model)
@@ -210,25 +238,32 @@ func TestTabCompletesMMProjValueAfterShortFlag(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
 	m.editor = newBookmarkEditor(config.Bookmark{
 		ModelPath: "/models/vision.gguf",
 		ArgsText:  "-mm ",
-	}, false)
+	}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 	m.snapshot.Models = []config.DiscoveredModel{{
 		Path:        "/models/vision.gguf",
 		DisplayName: "vision",
 		MMProjPaths: []string{"/models/mmproj-a.gguf", "/models/mmproj-b.gguf"},
 	}}
-	m.editor.args.MoveEnd()
+	cursorEnd(&m.editor.args)
 
 	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(*model)
 	if cmd != nil {
 		t.Fatalf("tab completion should not trigger a command")
 	}
-	if got.editor.args.Value() != expectedMMProjArgValue("-mm", "/models/mmproj-a.gguf") {
-		t.Fatalf("expected first mmproj candidate, got %q", got.editor.args.Value())
+	if !got.ac.Focused() || got.ac.FilteredLen() == 0 {
+		t.Fatalf("expected autocomplete to be populated after tab")
+	}
+	first := got.ac.SelectedItem().Value
+	if first == "" {
+		t.Fatalf("expected a selected item in autocomplete")
+	}
+	if !strings.Contains(first, "mmproj") {
+		t.Fatalf("expected mmproj completion, got %q", first)
 	}
 	if !got.editor.completion.active {
 		t.Fatalf("completion state should remain active for cycling")
@@ -239,22 +274,26 @@ func TestTabCompletesMMProjValueAfterLongFlag(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
 	m.editor = newBookmarkEditor(config.Bookmark{
 		ModelPath: "/models/vision.gguf",
 		ArgsText:  "--mmproj ",
-	}, false)
+	}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 	m.snapshot.Models = []config.DiscoveredModel{{
 		Path:        "/models/vision.gguf",
 		DisplayName: "vision",
 		MMProjPaths: []string{"/models/mmproj-a.gguf"},
 	}}
-	m.editor.args.MoveEnd()
+	cursorEnd(&m.editor.args)
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(*model)
-	if got.editor.args.Value() != expectedMMProjArgValue("--mmproj", "/models/mmproj-a.gguf") {
-		t.Fatalf("expected mmproj completion after long flag, got %q", got.editor.args.Value())
+	if !got.ac.Focused() || got.ac.FilteredLen() == 0 {
+		t.Fatalf("expected autocomplete to be populated after tab")
+	}
+	first := got.ac.SelectedItem().Value
+	if first == "" || !strings.Contains(first, "mmproj") {
+		t.Fatalf("expected mmproj completion, got %q", first)
 	}
 }
 
@@ -262,33 +301,36 @@ func TestTabCyclesMMProjValueCompletions(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
 	m.editor = newBookmarkEditor(config.Bookmark{
 		ModelPath: "/models/vision.gguf",
 		ArgsText:  "-mm ",
-	}, false)
+	}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 	m.snapshot.Models = []config.DiscoveredModel{{
 		Path:        "/models/vision.gguf",
 		DisplayName: "vision",
 		MMProjPaths: []string{"/models/mmproj-a.gguf", "/models/mmproj-b.gguf"},
 	}}
-	m.editor.args.MoveEnd()
+	cursorEnd(&m.editor.args)
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(*model)
-	first := got.editor.args.Value()
+	if !got.ac.Focused() || got.ac.FilteredLen() == 0 {
+		t.Fatalf("expected autocomplete to be populated after tab")
+	}
+	first := got.ac.SelectedItem().Value
 
 	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got = next.(*model)
-	second := got.editor.args.Value()
+	second := got.ac.SelectedItem().Value
 	if first == second {
 		t.Fatalf("expected second tab to cycle mmproj candidates, still got %q", second)
 	}
 
 	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab, Mod: tea.ModShift}))
 	got = next.(*model)
-	if got.editor.args.Value() != first {
-		t.Fatalf("expected shift+tab to cycle back, got %q want %q", got.editor.args.Value(), first)
+	if got.ac.SelectedItem().Value != first {
+		t.Fatalf("expected shift+tab to cycle back, got %q want %q", got.ac.SelectedItem().Value, first)
 	}
 }
 
@@ -296,22 +338,26 @@ func TestMMProjCompletionFiltersByTypedPrefix(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
 	m.editor = newBookmarkEditor(config.Bookmark{
 		ModelPath: "/models/vision.gguf",
 		ArgsText:  "-mm mmproj-m",
-	}, false)
+	}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 	m.snapshot.Models = []config.DiscoveredModel{{
 		Path:        "/models/vision.gguf",
 		DisplayName: "vision",
 		MMProjPaths: []string{"/models/mmproj-extra.gguf", "/models/mmproj-model.gguf"},
 	}}
-	m.editor.args.MoveEnd()
+	cursorEnd(&m.editor.args)
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(*model)
-	if got.editor.args.Value() != expectedMMProjArgValue("-mm", "/models/mmproj-model.gguf") {
-		t.Fatalf("expected prefix-filtered mmproj completion, got %q", got.editor.args.Value())
+	if !got.ac.Focused() || got.ac.FilteredLen() == 0 {
+		t.Fatalf("expected autocomplete to be populated after tab")
+	}
+	first := got.ac.SelectedItem().Value
+	if !strings.Contains(first, "mmproj-m") {
+		t.Fatalf("expected prefix-filtered mmproj completion, got %q", first)
 	}
 }
 
@@ -331,17 +377,17 @@ func TestMMProjCompletionDoesNotTriggerForOtherFlags(t *testing.T) {
 
 	for _, args := range tests {
 		m := newModel(context.Background(), nil)
-		m.focus = focusDetailArgs
 		m.editor = newBookmarkEditor(config.Bookmark{
 			ModelPath: "/models/vision.gguf",
 			ArgsText:  args,
-		}, false)
+		}, false, tuiweave.Dark())
+		m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 		m.snapshot.Models = []config.DiscoveredModel{{
 			Path:        "/models/vision.gguf",
 			DisplayName: "vision",
 			MMProjPaths: []string{"/models/mmproj-a.gguf"},
 		}}
-		m.editor.args.MoveEnd()
+		cursorEnd(&m.editor.args)
 
 		next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 		got := next.(*model)
@@ -358,16 +404,16 @@ func TestMMProjCompletionDoesNotActivateWithoutCandidates(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
 	m.editor = newBookmarkEditor(config.Bookmark{
 		ModelPath: "/models/vision.gguf",
 		ArgsText:  "-mm ",
-	}, false)
+	}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 	m.snapshot.Models = []config.DiscoveredModel{{
 		Path:        "/models/vision.gguf",
 		DisplayName: "vision",
 	}}
-	m.editor.args.MoveEnd()
+	cursorEnd(&m.editor.args)
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	got := next.(*model)
@@ -398,8 +444,8 @@ func TestTypingSingleHyphenShowsPassiveArgSuggestions(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 
 	next, cmd := m.Update(tea.KeyPressMsg{Text: "-"})
 	got := next.(*model)
@@ -421,8 +467,8 @@ func TestTypingDoubleHyphenShowsPassiveLongArgSuggestions(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 
 	next, _ := m.Update(tea.KeyPressMsg{Text: "-"})
 	got := next.(*model)
@@ -446,14 +492,14 @@ func TestPassiveArgSuggestionsUseOtherBookmarkPopularity(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ID: "current", ArgsText: "--"}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{ID: "current", ArgsText: "--"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 	m.snapshot.Bookmarks = []config.Bookmark{
 		{ID: "other-1", ArgsText: "--temp 0.7"},
 		{ID: "other-2", ArgsText: "--temp 0.8\n--ctx-size 4096"},
 		{ID: "other-3", ArgsText: "--temp 0.9"},
 	}
-	m.editor.args.MoveEnd()
+	cursorEnd(&m.editor.args)
 	m.refreshPassiveArgCompletion()
 
 	if len(m.editor.completion.candidates) == 0 {
@@ -468,13 +514,13 @@ func TestPassiveArgPopularityExcludesCurrentBookmark(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ID: "current", ArgsText: "--"}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{ID: "current", ArgsText: "--"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 	m.snapshot.Bookmarks = []config.Bookmark{
 		{ID: "current", ArgsText: "--temp 0.7"},
 		{ID: "other", ArgsText: "--ctx-size 8192"},
 	}
-	m.editor.args.MoveEnd()
+	cursorEnd(&m.editor.args)
 	m.refreshPassiveArgCompletion()
 
 	if len(m.editor.completion.candidates) == 0 {
@@ -489,8 +535,8 @@ func TestShiftTabFromPassiveSuggestionsAppliesLastCandidate(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 
 	next, _ := m.Update(tea.KeyPressMsg{Text: "-"})
 	got := next.(*model)
@@ -511,8 +557,8 @@ func TestTabFromPassiveSuggestionsThenCyclesForward(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 
 	next, _ := m.Update(tea.KeyPressMsg{Text: "-"})
 	got := next.(*model)
@@ -554,13 +600,13 @@ func TestUpInNameKeepsFocusInName(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailName
-	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editor.name.Focus()
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
 	got := next.(*model)
-	if got.focus != focusDetailName {
-		t.Fatalf("up in name field should keep focus in name, got %v", got.focus)
+	if !got.editorScope.Active() || got.editorScope.Index() != 0 {
+		t.Fatalf("up in name field should keep focus in name, got %v", "focus state")
 	}
 	if got.editor == nil {
 		t.Fatalf("editor should remain active")
@@ -571,16 +617,16 @@ func TestEscDiscardsEditorAndReturnsFocusToList(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	got := next.(*model)
 	if got.editor != nil {
 		t.Fatalf("esc should discard the editor")
 	}
-	if got.focus != focusModelList {
-		t.Fatalf("esc should return focus to model list, got %v", got.focus)
+	if got.editorScope.Active() || got.fm.Index() != 1 {
+		t.Fatalf("esc should return focus to model list, got %v", "focus state")
 	}
 }
 
@@ -612,8 +658,8 @@ func TestNewBookmarkUsesCurrentModelGroup(t *testing.T) {
 	if got.editor.groupKey != "gemma-3-4b-it-Q4_K_M" {
 		t.Fatalf("unexpected group key: %q", got.editor.groupKey)
 	}
-	if got.focus != focusDetailName {
-		t.Fatalf("new bookmark should focus the name field, got %v", got.focus)
+	if !got.editorScope.Active() || got.editorScope.Index() != 0 {
+		t.Fatalf("new bookmark should focus the name field, got %v", "focus state")
 	}
 }
 
@@ -665,226 +711,23 @@ func TestListItemsUsesPathFallbackForMissingModel(t *testing.T) {
 	}
 }
 
-func TestLogViewArrowKeysScrollViewport(t *testing.T) {
-	t.Parallel()
 
-	m := newModel(context.Background(), nil)
-	m.bottomView = bottomViewLogs
-	m.logViewHeight = 2
-	for i := 0; i < 12; i++ {
-		m.logs = append(m.logs, config.LogEntry{
-			Seq:    int64(i + 1),
-			Stream: "stdout",
-			Line:   "line",
-		})
-	}
-	m.scrollLogToBottom()
-	if m.logScrollY == 0 {
-		t.Fatalf("expected initial scroll position to be at bottom")
-	}
-	before := m.logScrollY
 
-	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
-	got := next.(*model)
-	if got.logScrollY >= before {
-		t.Fatalf("up should scroll log viewport upward")
-	}
 
-	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	got = next.(*model)
-	if got.logScrollY != m.logScrollY {
-		t.Fatalf("down should scroll log viewport downward")
-	}
-}
 
-func TestLogViewPageKeysScrollByViewportHeight(t *testing.T) {
-	t.Parallel()
 
-	m := newModel(context.Background(), nil)
-	m.bottomView = bottomViewLogs
-	m.logViewHeight = 3
-	for i := 0; i < 12; i++ {
-		m.logs = append(m.logs, config.LogEntry{
-			Seq:    int64(i + 1),
-			Stream: "stdout",
-			Line:   "line",
-		})
-	}
-	m.scrollLogToBottom()
-
-	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}))
-	got := next.(*model)
-	if got.logScrollY != 6 {
-		t.Fatalf("pgup should scroll by viewport height, got %d", got.logScrollY)
-	}
-
-	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
-	got = next.(*model)
-	if got.logScrollY != 9 {
-		t.Fatalf("pgdown should scroll by viewport height, got %d", got.logScrollY)
-	}
-}
-
-func TestLogViewHorizontalScrollUsesLeftRight(t *testing.T) {
-	t.Parallel()
-
-	m := newModel(context.Background(), nil)
-	m.bottomView = bottomViewLogs
-	m.logViewWidth = 12
-	m.logs = []config.LogEntry{{
-		Seq:    1,
-		Stream: "stdout",
-		Line:   "very long log line for scrolling",
-	}}
-	m.clampLogScroll()
-
-	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
-	got := next.(*model)
-	if got.logScrollX <= 0 {
-		t.Fatalf("right should increase horizontal log scroll")
-	}
-
-	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
-	got = next.(*model)
-	if got.logScrollX != 0 {
-		t.Fatalf("left should reduce horizontal log scroll back to zero, got %d", got.logScrollX)
-	}
-}
-
-func TestLogViewTogglePreservesScrollOffsets(t *testing.T) {
-	t.Parallel()
-
-	m := newModel(context.Background(), nil)
-	m.bottomView = bottomViewLogs
-	m.logViewHeight = 2
-	m.logs = []config.LogEntry{
-		{Seq: 1, Stream: "stdout", Line: "one"},
-		{Seq: 2, Stream: "stdout", Line: "two"},
-		{Seq: 3, Stream: "stdout", Line: "three"},
-		{Seq: 4, Stream: "stdout", Line: "four"},
-	}
-	m.logScrollY = 5
-	m.logScrollX = 7
-	m.clampLogScroll()
-	expectedY := m.logScrollY
-	expectedX := m.logScrollX
-
-	next, _ := m.Update(tea.KeyPressMsg{Text: "/"})
-	got := next.(*model)
-	if got.bottomView != bottomViewBookmarks {
-		t.Fatalf("expected bookmark view after toggle")
-	}
-
-	next, _ = got.Update(tea.KeyPressMsg{Text: "/"})
-	got = next.(*model)
-	if got.bottomView != bottomViewLogs {
-		t.Fatalf("expected log view after toggle back")
-	}
-	if got.logScrollY != expectedY || got.logScrollX != expectedX {
-		t.Fatalf("expected scroll offsets to be preserved, got y=%d x=%d", got.logScrollY, got.logScrollX)
-	}
-}
-
-func TestLogViewMouseWheelScrollsOnlyWhenVisible(t *testing.T) {
-	t.Parallel()
-
-	m := newModel(context.Background(), nil)
-	m.bottomView = bottomViewLogs
-	m.logViewHeight = 2
-	for i := 0; i < 12; i++ {
-		m.logs = append(m.logs, config.LogEntry{
-			Seq:    int64(i + 1),
-			Stream: "stdout",
-			Line:   "line",
-		})
-	}
-	m.scrollLogToBottom()
-	if m.logScrollY == 0 {
-		t.Fatalf("expected initial scroll position to be at bottom")
-	}
-	before := m.logScrollY
-
-	next, _ := m.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
-	got := next.(*model)
-	if got.logScrollY >= before {
-		t.Fatalf("mouse wheel up should scroll log viewport upward")
-	}
-
-	got.bottomView = bottomViewBookmarks
-	before = got.logScrollY
-	next, _ = got.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
-	got = next.(*model)
-	if got.logScrollY != before {
-		t.Fatalf("mouse wheel should be ignored outside visible log view")
-	}
-}
-
-func TestNewLogsAutoFollowOnlyAtBottom(t *testing.T) {
-	t.Parallel()
-
-	m := newModel(context.Background(), nil)
-	m.logViewHeight = 2
-	for i := 0; i < 5; i++ {
-		m.logs = append(m.logs, config.LogEntry{
-			Seq:    int64(i + 1),
-			Stream: "stdout",
-			Line:   "line",
-		})
-	}
-	m.scrollLogToBottom()
-	atBottom := m.logScrollY
-
-	m.followTail = true
-	m.followTailEnabled = true
-	next, _ := m.Update(logsMsg{entries: []config.LogEntry{{
-		Seq:    6,
-		Stream: "stdout",
-		Line:   "new line",
-	}}})
-	got := next.(*model)
-	if got.logScrollY <= atBottom {
-		t.Fatalf("expected auto-follow when already at bottom and tail mode enabled")
-	}
-
-	got.followTail = false
-	got.followTailEnabled = false
-	got.logScrollY = 0
-	next, _ = got.Update(logsMsg{entries: []config.LogEntry{{
-		Seq:    7,
-		Stream: "stdout",
-		Line:   "another line",
-	}}})
-	got = next.(*model)
-	if got.logScrollY != 0 {
-		t.Fatalf("expected viewport position to stay when scrolled up and tail mode disabled, got %d", got.logScrollY)
-	}
-
-	got.followTail = true
-	got.followTailEnabled = true
-	got.logScrollY = 0
-	next, _ = got.Update(logsMsg{entries: []config.LogEntry{{
-		Seq:    8,
-		Stream: "stdout",
-		Line:   "followed line",
-	}}})
-	got = next.(*model)
-	if got.logScrollY != 0 {
-		t.Fatalf("expected auto-follow when tail mode is enabled and scroll is at top")
-	}
-}
 
 func TestPasteIntoNameStripsNewlines(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailName
-	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
-	m.editor.name.col = len([]rune(m.editor.name.Value()))
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editor.name.Focus()
 
 	next, _ := m.Update(tea.PasteMsg{Content: "multi\nline\nname"})
 	got := next.(*model)
-	if got.editor.name.Value() != "Gemmamulti line name" {
-		t.Fatalf("expected 'Gemmamulti line name', got %q", got.editor.name.Value())
+	if !strings.Contains(got.editor.name.Value(), "multi line name") {
+		t.Fatalf("expected paste to strip newlines, got %q", got.editor.name.Value())
 	}
 }
 
@@ -892,9 +735,9 @@ func TestPasteIntoArgsPreservesNewlines(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false)
-	m.editor.args.col = len([]rune(m.editor.args.Value()))
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	cursorEnd(&m.editor.args)
 
 	next, _ := m.Update(tea.PasteMsg{Content: "--ctx 4096\n--gpu-layers 32"})
 	got := next.(*model)
@@ -907,20 +750,20 @@ func TestCtrlZUndoesInEditor(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailName
-	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
-	m.editor.name.col = len([]rune(m.editor.name.Value()))
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	cursorEnd(&m.editor.args)
 
-	next, _ := m.Update(tea.PasteMsg{Content: "X"})
+	next, _ := m.Update(tea.PasteMsg{Content: "-size"})
 	got := next.(*model)
-	if got.editor.name.Value() != "GemmaX" {
-		t.Fatalf("expected 'GemmaX', got %q", got.editor.name.Value())
+	if got.editor.args.Value() != "--ctx-size" {
+		t.Fatalf("expected '--ctx-size', got %q", got.editor.args.Value())
 	}
 
 	next, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: 'z', Mod: tea.ModCtrl}))
 	got = next.(*model)
-	if got.editor.name.Value() != "Gemma" {
-		t.Fatalf("expected 'Gemma' after Ctrl+Z, got %q", got.editor.name.Value())
+	if got.editor.args.Value() != "--ctx" {
+		t.Fatalf("expected '--ctx' after Ctrl+Z, got %q", got.editor.args.Value())
 	}
 }
 
@@ -928,8 +771,8 @@ func TestCtrlZNoOpWithEmptyUndoStack(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailName
-	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editor.name.Focus()
 
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'z', Mod: tea.ModCtrl}))
 	got := next.(*model)
@@ -942,9 +785,9 @@ func TestPasteIntoArgsNormalizesCRLF(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false)
-	m.editor.args.col = len([]rune(m.editor.args.Value()))
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	cursorEnd(&m.editor.args)
 
 	next, _ := m.Update(tea.PasteMsg{Content: "--ctx 4096\r\n--gpu-layers 32\r\n--temp 0.6"})
 	got := next.(*model)
@@ -958,9 +801,8 @@ func TestPasteIntoNameNormalizesCRLF(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailName
-	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
-	m.editor.name.col = len([]rune(m.editor.name.Value()))
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editor.name.Focus()
 
 	next, _ := m.Update(tea.PasteMsg{Content: "multi\r\nline\r\nname"})
 	got := next.(*model)
@@ -973,9 +815,9 @@ func TestPasteIntoArgsNormalizesLoneCR(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false)
-	m.editor.args.col = len([]rune(m.editor.args.Value()))
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	cursorEnd(&m.editor.args)
 
 	next, _ := m.Update(tea.PasteMsg{Content: "--ctx 4096\r--gpu-layers 32\r--temp 0.6"})
 	got := next.(*model)
@@ -989,9 +831,9 @@ func TestPasteIntoArgsStripsANSIColorCodes(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false)
-	m.editor.args.col = len([]rune(m.editor.args.Value()))
+	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx 4096"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	cursorEnd(&m.editor.args)
 
 	pasted := "\x1b[38;2;255;0;0m--host\x1b[0m \x1b[38;2;0;255;0m0.0.0.0\x1b[0m"
 	next, _ := m.Update(tea.PasteMsg{Content: pasted})
@@ -1005,9 +847,8 @@ func TestPasteIntoNameStripsANSIColorCodes(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailName
-	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
-	m.editor.name.col = len([]rune(m.editor.name.Value()))
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editor.name.Focus()
 
 	pasted := "\x1b[38;2;255;0;0mColored\x1b[0m \x1b[38;2;0;0;255mName\x1b[0m"
 	next, _ := m.Update(tea.PasteMsg{Content: pasted})

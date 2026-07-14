@@ -5,6 +5,9 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/ishan5ain/tuiweave/autocomplete"
+	"github.com/ishan5ain/tuiweave/textarea"
 )
 
 const (
@@ -13,14 +16,14 @@ const (
 )
 
 func (m *model) handleArgCompletionTab(direction int) bool {
-	if m.editor == nil || m.focus != focusDetailArgs {
+	if m.editor == nil || !m.editorScope.Active() || m.editorScope.Index() != 1 {
 		return false
 	}
 	if m.continueArgCompletionCycle(direction) {
 		return true
 	}
 
-	ctx := m.editor.args.TokenAtCursor()
+	ctx := tokenAtCursor(m.editor.args)
 	candidates := m.argCompletionCandidates(ctx)
 	if len(candidates) == 0 {
 		m.editor.completion = argCompletionState{}
@@ -35,11 +38,18 @@ func (m *model) handleArgCompletionTab(direction int) bool {
 		prefix:     ctx.prefix,
 		candidates: candidates,
 	}
-	index := 0
-	if direction == argCompletionBackward {
-		index = len(candidates) - 1
+
+	// Populate autocomplete with candidates
+	items := make([]autocomplete.Item, 0, len(candidates))
+	for _, c := range candidates {
+		items = append(items, autocomplete.Item{
+			ID:    c.Text,
+			Value: c.Text,
+		})
 	}
-	m.applyArgCompletionCandidate(index)
+	m.ac.SetItems(items...)
+	// Don't set query — the completion engine already filters candidates
+	m.ac.Focus()
 	return true
 }
 
@@ -48,7 +58,8 @@ func (m *model) continueArgCompletionCycle(direction int) bool {
 	if !state.active || len(state.candidates) == 0 {
 		return false
 	}
-	if m.editor.args.row != state.row || m.editor.args.col != state.end {
+	cursorRow, cursorCol := m.editor.args.Cursor()
+	if cursorRow != state.row || cursorCol != state.end {
 		m.editor.completion = argCompletionState{}
 		return false
 	}
@@ -71,10 +82,11 @@ func (m *model) applyArgCompletionCandidate(index int) {
 		return
 	}
 	text := state.candidates[index].Text
-	if !m.editor.args.ReplaceRange(state.row, state.start, state.end, text) {
-		state.active = false
-		return
-	}
+	m.editor.args.ReplaceRange(
+		textarea.Position{Row: state.row, Column: state.start},
+		textarea.Position{Row: state.row, Column: state.end},
+		text,
+	)
 	state.index = index
 	state.end = state.start + len([]rune(text))
 	state.passive = false
@@ -93,7 +105,7 @@ func (m *model) argCompletionCandidates(ctx tokenContext) []argCompletionCandida
 		return nil
 	}
 
-	used := usedLlamaArgOptions(m.editor.args, ctx)
+	used := usedLlamaArgOptions(m.editor.args.Value(), ctx)
 	passive := isPassiveArgCompletionPrefix(ctx.prefix)
 	popularity := map[int]int{}
 	if passive {
@@ -147,14 +159,16 @@ func (m *model) mmprojValueCompletionContext() (tokenContext, bool) {
 		return tokenContext{}, false
 	}
 
-	buffer := &m.editor.args
-	row := buffer.row
-	if row < 0 || row >= len(buffer.lines) {
+	value := m.editor.args.Value()
+	lines := strings.Split(value, "\n")
+	cursorRow, cursorCol := m.editor.args.Cursor()
+
+	if cursorRow < 0 || cursorRow >= len(lines) {
 		return tokenContext{}, false
 	}
 
-	line := buffer.lines[row]
-	col := buffer.col
+	line := []rune(lines[cursorRow])
+	col := cursorCol
 	if col < 0 {
 		col = 0
 	}
@@ -180,7 +194,7 @@ func (m *model) mmprojValueCompletionContext() (tokenContext, bool) {
 			return tokenContext{}, false
 		}
 		return tokenContext{
-			row:    row,
+			row:    cursorRow,
 			start:  tokens[currentIndex].start,
 			end:    tokens[currentIndex].end,
 			prefix: string(line[tokens[currentIndex].start:col]),
@@ -193,7 +207,7 @@ func (m *model) mmprojValueCompletionContext() (tokenContext, bool) {
 	}
 
 	return tokenContext{
-		row:   row,
+		row:   cursorRow,
 		start: col,
 		end:   col,
 	}, true
@@ -271,10 +285,10 @@ func mmprojPathBase(path, goos string) string {
 }
 
 func (m *model) refreshPassiveArgCompletion() {
-	if m.editor == nil || m.focus != focusDetailArgs {
+	if m.editor == nil || !m.editorScope.Active() || m.editorScope.Index() != 1 {
 		return
 	}
-	ctx := m.editor.args.TokenAtCursor()
+	ctx := tokenAtCursor(m.editor.args)
 	if ctx.token != ctx.prefix || !isPassiveArgCompletionPrefix(ctx.prefix) {
 		m.editor.completion = argCompletionState{}
 		return
@@ -306,9 +320,8 @@ func (m *model) argOptionPopularity(catalog []llamaArgOption) map[int]int {
 		if m.editor != nil && m.editor.originalID != "" && bookmark.ID == m.editor.originalID {
 			continue
 		}
-		buffer := newTextBuffer(bookmark.ArgsText, true)
 		seenInBookmark := map[int]struct{}{}
-		for _, token := range scanBufferTokens(buffer) {
+		for _, token := range scanBufferTokens(bookmark.ArgsText) {
 			optionIndex, ok := aliasToOption[token.text]
 			if !ok {
 				continue
@@ -322,12 +335,12 @@ func (m *model) argOptionPopularity(catalog []llamaArgOption) map[int]int {
 	return popularity
 }
 
-func usedLlamaArgOptions(buffer textBuffer, skip tokenContext) map[int]struct{} {
+func usedLlamaArgOptions(value string, skip tokenContext) map[int]struct{} {
 	catalog := loadLlamaArgCatalog()
 	aliasToOption := aliasOptionIndex(catalog)
 
 	used := map[int]struct{}{}
-	for _, token := range scanBufferTokens(buffer) {
+	for _, token := range scanBufferTokens(value) {
 		if token.row == skip.row && token.start == skip.start && token.end == skip.end {
 			continue
 		}
@@ -357,10 +370,11 @@ type bufferToken struct {
 	text  string
 }
 
-func scanBufferTokens(buffer textBuffer) []bufferToken {
+func scanBufferTokens(value string) []bufferToken {
 	var tokens []bufferToken
-	for row, line := range buffer.lines {
-		for _, token := range scanLineTokens(line) {
+	lines := strings.Split(value, "\n")
+	for row, line := range lines {
+		for _, token := range scanLineTokens([]rune(line)) {
 			if !strings.HasPrefix(token.text, "-") {
 				continue
 			}
@@ -373,6 +387,47 @@ func scanBufferTokens(buffer textBuffer) []bufferToken {
 		}
 	}
 	return tokens
+}
+
+// tokenAtCursor scans the textarea at the cursor position and returns
+// the token context for completion.
+func tokenAtCursor(ta textarea.Model) tokenContext {
+	value := ta.Value()
+	lines := strings.Split(value, "\n")
+	cursorRow, cursorCol := ta.Cursor()
+
+	if cursorRow < 0 || cursorRow >= len(lines) {
+		return tokenContext{row: cursorRow}
+	}
+	line := []rune(lines[cursorRow])
+	col := cursorCol
+	if col < 0 {
+		col = 0
+	}
+	if col > len(line) {
+		col = len(line)
+	}
+
+	for _, token := range scanLineTokens(line) {
+		if col < token.start || col > token.end {
+			continue
+		}
+		return tokenContext{
+			row:    cursorRow,
+			start:  token.start,
+			end:    token.end,
+			prefix: string(line[token.start:col]),
+			token:  token.text,
+		}
+	}
+
+	return tokenContext{
+		row:    cursorRow,
+		start:  col,
+		end:    col,
+		prefix: "",
+		token:  "",
+	}
 }
 
 func completionWindow(candidates []argCompletionCandidate, index, limit int) []argCompletionCandidate {
@@ -400,4 +455,9 @@ func passiveCompletionWindow(candidates []argCompletionCandidate, limit int) []a
 		limit = len(candidates)
 	}
 	return append([]argCompletionCandidate(nil), candidates[:limit]...)
+}
+
+// scanLineTokensString is like scanLineTokens but operates on a string.
+func scanLineTokensString(line string) []lineToken {
+	return scanLineTokens([]rune(line))
 }

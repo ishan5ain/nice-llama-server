@@ -1,0 +1,1 @@
+All criteria satisfied. Here's the acceptance report.

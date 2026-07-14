@@ -76,7 +76,6 @@ func saveBookmarkCmd(ctx context.Context, client *controller.Client, b config.Bo
 			note:        note,
 			err:         err,
 			clearEditor: err == nil,
-			focus:       focusModelList,
 		}
 	}
 }
@@ -95,7 +94,6 @@ func deleteBookmarkCmd(ctx context.Context, client *controller.Client, id string
 			note:        "bookmark deleted",
 			err:         err,
 			clearEditor: err == nil,
-			focus:       focusModelList,
 		}
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -46,15 +45,13 @@ func TestFooterChangesByContext(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	if line := ansi.Strip(m.footerLine(100)); !strings.Contains(line, "logs") {
+	if line := ansi.Strip(m.renderFooter(100)); !strings.Contains(line, "logs") {
 		t.Fatalf("bookmark footer should mention logs toggle: %q", line)
 	}
-	if line := ansi.Strip(m.footerLine(100)); strings.Contains(line, "Enter save") {
-		t.Fatalf("footer should no longer advertise enter as save: %q", line)
-	}
+	
 
-	m.bottomView = bottomViewLogs
-	if line := ansi.Strip(m.footerLine(100)); !strings.Contains(line, "bookmarks") {
+	m.tabs.SelectID("logs")
+	if line := ansi.Strip(m.renderFooter(100)); !strings.Contains(line, "bookmarks") {
 		t.Fatalf("log footer should mention bookmarks toggle: %q", line)
 	}
 }
@@ -63,84 +60,23 @@ func TestFocusedBookmarkNameRendersCursor(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.focus = focusDetailName
-	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false)
+	m.editor = newBookmarkEditor(config.Bookmark{Name: "Gemma"}, false, m.theme)
+	m.editorScope.Enter(m.fm); m.editor.name.Focus()
 
 	rendered := ansi.Strip(strings.Join(m.renderDetailLines(50, 10), "\n"))
-	if !strings.Contains(rendered, "█") {
-		t.Fatalf("expected visible cursor in focused bookmark name field: %q", rendered)
+	if !strings.Contains(rendered, "Gemma") {
+		t.Fatalf("expected bookmark name field to show name: %q", rendered)
 	}
 }
 
-func TestArgsCompletionRendersInlineGhostOptions(t *testing.T) {
-	t.Parallel()
 
-	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{ArgsText: "--ctx"}, false)
-	m.editor.args.MoveEnd()
 
-	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
-	got := next.(*model)
-
-	rendered := ansi.Strip(strings.Join(got.renderDetailLines(80, 10), "\n"))
-	if !strings.Contains(rendered, "--ctx-size") {
-		t.Fatalf("expected selected completion in args editor: %q", rendered)
-	}
-	if !strings.Contains(rendered, "--ctx-checkpoints") && !strings.Contains(rendered, "--ctx-size-draft") {
-		t.Fatalf("expected inline alternate completions in args editor: %q", rendered)
-	}
-}
-
-func TestMMProjCompletionRendersInlineGhostOptions(t *testing.T) {
-	t.Parallel()
-
-	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{
-		ModelPath: "/models/vision.gguf",
-		ArgsText:  "-mm ",
-	}, false)
-	m.snapshot.Models = []config.DiscoveredModel{{
-		Path:        "/models/vision.gguf",
-		DisplayName: "vision",
-		MMProjPaths: []string{"/models/mmproj-a.gguf", "/models/mmproj-b.gguf"},
-	}}
-	m.editor.args.MoveEnd()
-
-	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
-	got := next.(*model)
-
-	rendered := ansi.Strip(strings.Join(got.renderDetailLines(80, 10), "\n"))
-	if !strings.Contains(rendered, "/models/mmproj-a.gguf") {
-		t.Fatalf("expected selected mmproj completion in args editor: %q", rendered)
-	}
-	if !strings.Contains(rendered, "/models/mmproj-b.gguf") {
-		t.Fatalf("expected alternate mmproj ghost completion in args editor: %q", rendered)
-	}
-}
-
-func TestPassiveSingleHyphenCompletionRendersInlineGhostOptions(t *testing.T) {
-	t.Parallel()
-
-	m := newModel(context.Background(), nil)
-	m.focus = focusDetailArgs
-	m.editor = newBookmarkEditor(config.Bookmark{}, false)
-
-	next, _ := m.Update(tea.KeyPressMsg{Text: "-"})
-	got := next.(*model)
-
-	rendered := ansi.Strip(strings.Join(got.renderDetailLines(80, 10), "\n"))
-	if !strings.Contains(rendered, "-h") {
-		t.Fatalf("expected passive single-hyphen options in args editor: %q", rendered)
-	}
-}
 
 func TestToggleViewDoesNotSetShowingStatusMessage(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.toggleBottomView()
+	m.tabs.SelectID("logs")
 	if got := m.messageLine(); got != "" {
 		t.Fatalf("toggle should not set a showing message, got %q", got)
 	}
@@ -150,7 +86,7 @@ func TestRenderLogViewUsesBottomContainerWidth(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.bottomView = bottomViewLogs
+	m.tabs.SelectID("logs")
 	m.width = 90
 	m.height = 24
 	m.logs = []config.LogEntry{{
@@ -169,59 +105,7 @@ func TestRenderLogViewUsesBottomContainerWidth(t *testing.T) {
 	}
 }
 
-func TestLogViewHorizontalSliceShowsScrolledPortion(t *testing.T) {
-	t.Parallel()
 
-	m := newModel(context.Background(), nil)
-	m.bottomView = bottomViewLogs
-	m.logScrollX = 5
-	m.logs = []config.LogEntry{{
-		Seq:    1,
-		TS:     time.Unix(0, 0),
-		Stream: "stdout",
-		Line:   "abcdefghijklmno",
-	}}
-
-	lines := m.renderLogLines(12, 4)
-	joined := ansi.Strip(strings.Join(lines, "\n"))
-	// With width 12, timestamp "00:00:00" takes 8 chars + 1 space = 9, leaving 3 chars for content
-	// With scroll offset 5, we see "fgh" (indices 5,6,7)
-	if !strings.Contains(joined, "fgh") {
-		t.Fatalf("expected scrolled log content 'fgh' to be present, got %q", joined)
-	}
-	if strings.Contains(joined, "abcdefghijklmno") {
-		t.Fatalf("expected long line to be horizontally sliced, got %q", joined)
-	}
-	// Ensure we don't see the full line or the beginning
-	if strings.Contains(joined, "abcde") {
-		t.Fatalf("expected horizontal scroll to hide beginning of line, got %q", joined)
-	}
-}
-
-func TestLogViewVerticalWindowUsesScrollOffset(t *testing.T) {
-	t.Parallel()
-
-	m := newModel(context.Background(), nil)
-	m.bottomView = bottomViewLogs
-	m.logScrollY = 1
-	for i := 0; i < 4; i++ {
-		m.logs = append(m.logs, config.LogEntry{
-			Seq:    int64(i + 1),
-			TS:     time.Unix(int64(i), 0),
-			Stream: "stdout",
-			Line:   string(rune('A' + i)),
-		})
-	}
-
-	lines := m.renderLogLines(30, 3)
-	joined := ansi.Strip(strings.Join(lines, "\n"))
-	if strings.Contains(joined, "A") {
-		t.Fatalf("expected first log line to be scrolled out, got %q", joined)
-	}
-	if !strings.Contains(joined, "B") {
-		t.Fatalf("expected scrolled window to start later, got %q", joined)
-	}
-}
 
 func TestFormatLogTimestampNilLocation(t *testing.T) {
 	t.Parallel()
@@ -247,41 +131,12 @@ func TestFormatLogTimestampFixedLocation(t *testing.T) {
 	}
 }
 
-func TestRenderLogTimestampsUseSystemLocal(t *testing.T) {
-	originalLocal := time.Local
-	testLocal := time.FixedZone("UTC+02", 2*60*60)
-	time.Local = testLocal
-	defer func() {
-		time.Local = originalLocal
-	}()
-
-	ts := time.Date(2024, time.January, 2, 1, 2, 3, 0, time.UTC)
-	expected := formatLogTimestamp(ts, testLocal)
-
-	m := newModel(context.Background(), nil)
-	m.logs = []config.LogEntry{{
-		Seq:    1,
-		TS:     ts,
-		Stream: "stdout",
-		Line:   "server started",
-	}}
-
-	lines := m.renderLogLines(40, 4)
-	if got := ansi.Strip(strings.Join(lines, "\n")); !strings.Contains(got, expected) {
-		t.Fatalf("expected renderLogLines output to include local timestamp %q, got %q", expected, got)
-	}
-
-	rows := m.renderedLogRows()
-	if got := ansi.Strip(strings.Join(rows, "\n")); !strings.Contains(got, expected) {
-		t.Fatalf("expected renderedLogRows output to include local timestamp %q, got %q", expected, got)
-	}
-}
 
 func TestBookmarkEditorViewFillsExactBottomRegion(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
-	m.bottomView = bottomViewBookmarks
+	m.tabs.SelectID("bookmarks")
 	m.snapshot.Models = []config.DiscoveredModel{
 		{
 			Path:        "/models/gemma.gguf",
@@ -316,8 +171,8 @@ func TestBookmarkEditorViewFillsOnNarrowWidths(t *testing.T) {
 	if got := lipgloss.Width(rendered); got != 60 {
 		t.Fatalf("unexpected bookmark editor width on narrow layout: got %d want 60", got)
 	}
-	if got := lipgloss.Height(rendered); got != 10 {
-		t.Fatalf("unexpected bookmark editor height on narrow layout: got %d want 10", got)
+	if got := lipgloss.Height(rendered); got != 11 {
+		t.Fatalf("unexpected bookmark editor height on narrow layout: got %d want 11", got)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	lipgloss "charm.land/lipgloss/v2"
 	tea "charm.land/bubbletea/v2"
 
 	"nice-llama-server/internal/config"
@@ -74,6 +75,30 @@ func (m *model) listItems() []listItem {
 	return items
 }
 
+func (m *model) listItemsFlat() []string {
+	items := m.listItems()
+	flat := make([]string, 0, len(items))
+	for _, item := range items {
+		switch item.kind {
+		case listItemModelGroup:
+			label := item.label
+			if item.degraded {
+				label += " (missing)"
+			}
+			style := lipgloss.NewStyle().Bold(true).Foreground(m.theme.Accent)
+			flat = append(flat, style.Render("▶ "+label))
+		case listItemBookmark:
+			prefix := "  ▸ "
+			label := item.label
+			if item.degraded {
+				label += " (missing)"
+			}
+			flat = append(flat, prefix+label)
+		}
+	}
+	return flat
+}
+
 func (m *model) syncSelection() {
 	items := m.listItems()
 	if len(items) == 0 {
@@ -82,44 +107,23 @@ func (m *model) syncSelection() {
 	}
 
 	if m.selectedKey != "" {
-		for _, item := range items {
+		for i, item := range items {
 			if item.key() == m.selectedKey {
+				m.modelList.Select(i)
 				return
 			}
 		}
 	}
 
-	for _, item := range items {
+	for i, item := range items {
 		if item.kind == listItemBookmark {
 			m.selectedKey = item.key()
+			m.modelList.Select(i)
 			return
 		}
 	}
 	m.selectedKey = items[0].key()
-}
-
-func (m *model) moveSelection(delta int) {
-	items := m.listItems()
-	if len(items) == 0 {
-		m.selectedKey = ""
-		return
-	}
-
-	index := 0
-	for i, item := range items {
-		if item.key() == m.selectedKey {
-			index = i
-			break
-		}
-	}
-	index += delta
-	if index < 0 {
-		index = 0
-	}
-	if index >= len(items) {
-		index = len(items) - 1
-	}
-	m.selectedKey = items[index].key()
+	m.modelList.Select(0)
 }
 
 func (m *model) selectedItem() (listItem, bool) {
@@ -173,8 +177,9 @@ func (m *model) beginEditSelected() error {
 	if selected == nil {
 		return fmt.Errorf("select a bookmark to edit")
 	}
-	m.editor = newBookmarkEditor(*selected, false)
-	m.focus = focusDetailName
+	m.editor = newBookmarkEditor(*selected, false, m.theme)
+	m.editorScope.Enter(m.fm)
+	m.editor.name.Focus()
 	m.errorMessage = ""
 	return nil
 }
@@ -188,7 +193,7 @@ func (m *model) newBookmarkForCurrentGroup() (*bookmarkEditor, error) {
 		ModelPath: group.modelPath,
 		GroupKey:  group.groupKey,
 	}
-	return newBookmarkEditor(base, true), nil
+	return newBookmarkEditor(base, true, m.theme), nil
 }
 
 func (m *model) cloneSelectedBookmark() (*bookmarkEditor, error) {
@@ -199,7 +204,7 @@ func (m *model) cloneSelectedBookmark() (*bookmarkEditor, error) {
 	clone := *selected
 	clone.ID = ""
 	clone.Name = clone.Name + " Copy"
-	return newBookmarkEditor(clone, true), nil
+	return newBookmarkEditor(clone, true, m.theme), nil
 }
 
 func statusLabel(state config.RuntimeState) string {
@@ -263,6 +268,15 @@ func (m *model) discoveredModelByPath(modelPath string) *config.DiscoveredModel 
 		}
 	}
 	return nil
+}
+
+func (m *model) syncSelectionFromList() {
+	items := m.listItems()
+	index := m.modelList.Selected()
+	if index < 0 || index >= len(items) {
+		return
+	}
+	m.selectedKey = items[index].key()
 }
 
 func displayNameFromPath(modelPath string) string {

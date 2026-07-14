@@ -5,6 +5,15 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/ishan5ain/tuiweave"
+	"github.com/ishan5ain/tuiweave/autocomplete"
+	"github.com/ishan5ain/tuiweave/dialog"
+	"github.com/ishan5ain/tuiweave/focus"
+	"github.com/ishan5ain/tuiweave/list"
+	"github.com/ishan5ain/tuiweave/statusbar"
+	"github.com/ishan5ain/tuiweave/tabs"
+	"github.com/ishan5ain/tuiweave/textarea"
+	"github.com/ishan5ain/tuiweave/viewport"
 
 	"nice-llama-server/internal/config"
 	"nice-llama-server/internal/controller"
@@ -14,21 +23,6 @@ const (
 	statePollInterval = 1200 * time.Millisecond
 	logPollInterval   = 450 * time.Millisecond
 	maxVisibleLogs    = 2000
-)
-
-type bottomView int
-
-const (
-	bottomViewBookmarks bottomView = iota
-	bottomViewLogs
-)
-
-type focusArea int
-
-const (
-	focusModelList focusArea = iota
-	focusDetailName
-	focusDetailArgs
 )
 
 type listItemKind int
@@ -57,26 +51,29 @@ func (i listItem) key() string {
 type model struct {
 	ctx               context.Context
 	client            *controller.Client
+	theme             tuiweave.Theme
 	styles            styles
 	width             int
 	height            int
-	bottomView        bottomView
-	focus             focusArea
-	snapshot          config.Snapshot
+	fm              focus.Manager
+	editorScope     focus.Scope
+	snapshot        config.Snapshot
 	selectedKey       string
+	modelList         list.Model
 	logs              []config.LogEntry
 	lastSeq           int64
-	logScrollY        int
 	logScrollX        int
-	logViewWidth      int
-	logViewHeight     int
 	stateReady        bool
 	errorMessage      string
 	flashMessage      string
 	editor            *bookmarkEditor
-	confirmDelete     bool
-	followTail        bool
 	followTailEnabled bool
+	footer            statusbar.Model
+	tabs              tabs.Model
+	logView           viewport.Model
+	deleteDialog      dialog.Model
+	showDialog        bool
+	ac                autocomplete.Model
 }
 
 type stateMsg struct {
@@ -95,24 +92,33 @@ type actionMsg struct {
 	note        string
 	err         error
 	clearEditor bool
-	focus       focusArea
 }
 
 type pollStateMsg struct{}
 type pollLogsMsg struct{}
 
 func newModel(ctx context.Context, client *controller.Client) *model {
-	return &model{
+	m := &model{
 		ctx:               ctx,
 		client:            client,
-		styles:            newStyles(),
+		theme:             tuiweave.Dark(),
+		styles:            newStyles(tuiweave.Dark()),
 		width:             100,
 		height:            34,
-		bottomView:        bottomViewBookmarks,
-		focus:             focusModelList,
-		followTail:        true,
+		fm:                focus.NewManager(3),
+		editorScope:        focus.NewScope(3),
 		followTailEnabled: true,
+		footer:            statusbar.New(tuiweave.Dark()),
+		logView:           viewport.New(tuiweave.Dark()),
+		deleteDialog:      dialog.New(tuiweave.Dark()),
 	}
+	m.tabs = tabs.New(tuiweave.Dark())
+	m.tabs.SetTabs(tabs.Tab{ID: "bookmarks", Label: "Bookmarks"}, tabs.Tab{ID: "logs", Label: "Logs"})
+	m.modelList = list.New(tuiweave.Dark())
+	m.ac = autocomplete.New(tuiweave.Dark())
+	m.fm.Next() // Start with list focused
+	m.fm.Apply(&m.tabs, &m.modelList)
+	return m
 }
 
 func (m *model) Init() tea.Cmd {
@@ -129,7 +135,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.clampLogScroll()
+		m.footer.SetSize(msg.Width, 1)
+		m.tabs.SetSize(msg.Width, 1)
+		m.modelList.SetSize(msg.Width/2, msg.Height-10)
 		return m, nil
 	case stateMsg:
 		if msg.err != nil {
@@ -146,20 +154,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if len(msg.entries) > 0 {
-			wasAtBottom := m.logAtBottom()
+			wasAtBottom := m.logView.AtBottom()
 			m.logs = append(m.logs, msg.entries...)
 			if len(m.logs) > maxVisibleLogs {
 				m.logs = append([]config.LogEntry(nil), m.logs[len(m.logs)-maxVisibleLogs:]...)
 			}
 			m.lastSeq = msg.entries[len(msg.entries)-1].Seq
-			if m.followTail && m.followTailEnabled {
-				if wasAtBottom {
-					m.scrollLogToBottom()
-				} else {
-					m.clampLogScroll()
-				}
-			} else {
-				m.clampLogScroll()
+			if m.followTailEnabled && wasAtBottom {
+				m.logView.GotoBottom()
 			}
 		}
 		return m, nil
@@ -176,8 +178,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.clearEditor {
 			m.editor = nil
-			m.focus = msg.focus
-			m.confirmDelete = false
+			m.editorScope.Exit(&m.fm)
+			m.showDialog = false
 		}
 		m.syncSelection()
 		if m.snapshot.Runtime.Status == config.StatusLoading || m.snapshot.Runtime.Status == config.StatusReady || m.snapshot.Runtime.Status == config.StatusFailed {
@@ -188,6 +190,27 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(fetchStateCmd(m.ctx, m.client), scheduleStatePoll())
 	case pollLogsMsg:
 		return m, tea.Batch(fetchLogsCmd(m.ctx, m.client, m.lastSeq), scheduleLogPoll())
+	case dialog.ResultMsg:
+		if m.showDialog {
+			m.showDialog = false
+			if msg.OK {
+				if selected := m.selectedBookmark(); selected != nil {
+					return m, deleteBookmarkCmd(m.ctx, m.client, selected.ID)
+				}
+			}
+		}
+		return m, nil
+	case autocomplete.SelectedMsg:
+		if m.ac.Focused() && m.editor != nil && m.editorScope.Active() {
+			m.editor.args.ReplaceRange(
+				textarea.Position{Row: m.editor.completion.row, Column: m.editor.completion.start},
+				textarea.Position{Row: m.editor.completion.row, Column: m.editor.completion.end},
+				msg.Value,
+			)
+			m.editor.completion = argCompletionState{}
+			m.ac.Blur()
+		}
+		return m, nil
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case tea.PasteMsg:

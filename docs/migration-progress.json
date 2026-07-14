@@ -1,13 +1,31 @@
 {
-  "wave": 2,
-  "slice": 1,
-  "status": "in-progress",
+  "wave": 6,
+  "slice": "R3",
+  "status": "done",
   "notes": [
-    "Wave 1 (Slice 0) complete: gotui dependency added, go.mod updated with replace directive, all hardcoded colors replaced with gotui.Theme roles, theme stored on model, all tests pass.",
-    "Starting Wave 2 (Slices 1-5, 7, 11): Sequential implementation of Header, Footer, Tabs, Viewport, TextInput, List, Dialog."
+    "All 13 implementation slices + 3 review passes complete.",
+    "Focus drift bug fixed in applyFocus(): replaced fm.Apply with editorScope.ApplyBackground.",
+    "~970 net lines of custom UI code eliminated (~54% reduction).",
+    "All 50+ tests pass, go build and go vet clean.",
+    "0 color literals remain — all use Theme roles.",
+    "Migration complete. See docs/gotui-migration-plan.md for original plan."
   ],
   "completed": [
-    "Slice 0 — Foundation: Add gotui dependency & theme"
+    "Slice 0 — Foundation: Add gotui dependency & theme",
+    "Slice 1 — Header Panel: Replace with gotui/frame + gotui/stack",
+    "Slice 2 — Footer: Replace with gotui/statusbar",
+    "Slice 3 — Bottom View Tabs: Replace toggle with gotui/tabs",
+    "Slice 4 — Log View: Replace with gotui/viewport",
+    "Slice 5 — Text Input (Name Field): Replace with gotui/textinput",
+    "Slice 6 — Text Area (Args Editor): Replace with gotui/textarea",
+    "Slice 7 — Model List: Replace with gotui/list",
+    "Slice 8 — Split Pane Layout: Replace with gotui/splitpane",
+    "Slice 9 — Arg Completion UI: Wire gotui/autocomplete",
+    "Slice 10 — Focus Management: Use gotui/focus",
+    "Slice 11 — Delete Confirmation Dialog: Use gotui/dialog",
+    "Slice 12 — Cleanup & Polish: Remove dead code, add scrollbar",
+    "Wave R1 — Review pass (fixed dead moveSelection function)",
+    "Wave R3 — Final review pass (fixed focus drift in applyFocus)"
   ],
   "blocked": []
 }

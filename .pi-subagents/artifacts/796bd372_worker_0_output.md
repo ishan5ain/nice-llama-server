@@ -1,0 +1,1 @@
+Everything is clean. Here's the acceptance report.
