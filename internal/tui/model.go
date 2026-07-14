@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -64,6 +65,7 @@ type model struct {
 	lastSeq           int64
 	logScrollX        int
 	stateReady        bool
+	stateVersion      int
 	errorMessage      string
 	flashMessage      string
 	editor            *bookmarkEditor
@@ -80,6 +82,7 @@ type model struct {
 type stateMsg struct {
 	snapshot config.Snapshot
 	err      error
+	version  int
 }
 
 type logsMsg struct {
@@ -145,6 +148,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errorMessage = msg.err.Error()
 			return m, nil
 		}
+		if msg.version < m.stateVersion {
+			return m, nil
+		}
 		m.stateReady = true
 		m.snapshot = msg.snapshot
 		m.syncSelection()
@@ -173,6 +179,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.errorMessage = ""
 		m.flashMessage = msg.note
+		m.stateVersion++
 		m.snapshot = msg.snapshot
 		if msg.selectedKey != "" {
 			m.selectedKey = msg.selectedKey
@@ -189,7 +196,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case pollStateMsg:
-		return m, tea.Batch(fetchStateCmd(m.ctx, m.client), scheduleStatePoll())
+		ver := m.stateVersion
+		return m, tea.Batch(func() tea.Msg {
+			reqCtx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+			defer cancel()
+			var snapshot config.Snapshot
+			err := m.client.DoWithRetry(reqCtx, http.MethodGet, "/v1/state", nil, &snapshot, 2)
+			return stateMsg{snapshot: snapshot, err: err, version: ver}
+		}, scheduleStatePoll())
 	case pollLogsMsg:
 		return m, tea.Batch(fetchLogsCmd(m.ctx, m.client, m.lastSeq), scheduleLogPoll())
 	case dialog.ResultMsg:

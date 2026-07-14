@@ -35,8 +35,8 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				// On args field: trigger arg completion
 				if m.handleArgCompletionTab(argCompletionForward) {
 					m.errorMessage = ""
+					return m, nil
 				}
-				return m, nil
 			}
 			m.editorScope.Next()
 			m.editorScope.Apply(&m.editor.name, &m.editor.args, &m.ac)
@@ -59,8 +59,8 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				// On args field: trigger backward arg completion
 				if m.handleArgCompletionTab(argCompletionBackward) {
 					m.errorMessage = ""
+					return m, nil
 				}
-				return m, nil
 			}
 			m.editorScope.Prev()
 			m.editorScope.Apply(&m.editor.name, &m.editor.args, &m.ac)
