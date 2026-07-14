@@ -105,7 +105,7 @@ func newModel(ctx context.Context, client *controller.Client) *model {
 		styles:            newStyles(tuiweave.Dark()),
 		width:             100,
 		height:            34,
-		fm:                focus.NewManager(3),
+		fm:                focus.NewManager(2),
 		editorScope:        focus.NewScope(3),
 		followTailEnabled: true,
 		footer:            statusbar.New(tuiweave.Dark()),
@@ -179,6 +179,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.clearEditor {
 			m.editor = nil
 			m.editorScope.Exit(&m.fm)
+			m.applyFocus()
 			m.showDialog = false
 		}
 		m.syncSelection()

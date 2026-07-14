@@ -11,6 +11,13 @@ import (
 )
 
 func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Dialog absorbs ALL input first
+	if m.showDialog {
+		var cmd tea.Cmd
+		m.deleteDialog, cmd = m.deleteDialog.Update(msg)
+		return m, cmd
+	}
+
 	switch {
 	case msg.Keystroke() == "ctrl+q":
 		return m, tea.Quit
@@ -62,12 +69,6 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.applyFocus()
 		}
 		return m, nil
-	}
-
-	if m.showDialog {
-		var cmd tea.Cmd
-		m.deleteDialog, cmd = m.deleteDialog.Update(msg)
-		return m, cmd
 	}
 
 	if m.tabs.SelectedID() == "logs" {
@@ -173,8 +174,7 @@ func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.editor = editor
-		m.editorScope.Enter(m.fm)
-		m.editor.name.Focus()
+		m.applyFocus()
 		m.flashMessage = "creating bookmark"
 		m.errorMessage = ""
 		return m, nil
@@ -185,8 +185,7 @@ func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.editor = editor
-		m.editorScope.Enter(m.fm)
-		m.editor.name.Focus()
+		m.applyFocus()
 		m.flashMessage = "cloning bookmark"
 		m.errorMessage = ""
 		return m, nil
@@ -245,6 +244,7 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.editor = nil
 		m.editorScope.Exit(&m.fm)
+		m.applyFocus()
 		m.errorMessage = ""
 		m.flashMessage = "discarded changes"
 		return m, nil
@@ -292,9 +292,6 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		clipboardContent, err := readClipboard()
 		if err != nil {
 			m.errorMessage = "failed to read clipboard"
-			return m, nil
-		}
-		if m.editorScope.Index() == 0 {
 			return m, nil
 		}
 		m.pasteIntoBuffer(clipboardContent)

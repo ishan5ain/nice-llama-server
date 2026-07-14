@@ -178,8 +178,7 @@ func (m *model) beginEditSelected() error {
 		return fmt.Errorf("select a bookmark to edit")
 	}
 	m.editor = newBookmarkEditor(*selected, false, m.theme)
-	m.editorScope.Enter(m.fm)
-	m.editor.name.Focus()
+	m.applyFocus()
 	m.errorMessage = ""
 	return nil
 }
