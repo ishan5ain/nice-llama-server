@@ -66,6 +66,7 @@ type model struct {
 	logScrollX        int
 	stateReady        bool
 	stateVersion      int
+	loading           bool
 	errorMessage      string
 	flashMessage      string
 	editor            *bookmarkEditor
@@ -183,9 +184,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case actionMsg:
 		if msg.err != nil {
+			m.loading = false
 			m.errorMessage = msg.err.Error()
 			return m, tea.Batch(fetchStateCmd(m.ctx, m.client), fetchLogsCmd(m.ctx, m.client, m.lastSeq))
 		}
+		m.loading = false
 		m.errorMessage = ""
 		m.flashMessage = msg.note
 		m.stateVersion++

@@ -45,6 +45,11 @@ func (m *model) renderHeader(width int) string {
 			parts := []string{
 				m.styles.headerStatus.Render("Runtime " + runtimeSummary(m.snapshot)),
 			}
+			if m.loading {
+				parts = append(parts, "   ",
+					m.styles.headerStatus.Render("⏳ Working..."),
+				)
+			}
 			if m.snapshot.Runtime.Port != 0 {
 				parts = append(parts, "  ",
 					m.styles.headerStats.Render(fmt.Sprintf("@ %s:%d", hostOrDefault(m.snapshot.Runtime.Host), m.snapshot.Runtime.Port)),
