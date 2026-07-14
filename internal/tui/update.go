@@ -195,6 +195,7 @@ func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.deleteDialog.Body = fmt.Sprintf("Delete %q?", selected.Name)
 			m.deleteDialog.ConfirmLabel = "Delete"
 			m.deleteDialog.CancelLabel = "Cancel"
+			m.pendingDeleteID = selected.ID
 			m.showDialog = true
 		} else {
 			m.errorMessage = "select a bookmark to delete"
@@ -322,6 +323,10 @@ func (m *model) saveEditor() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	bookmark := m.editor.Bookmark()
+	if strings.TrimSpace(bookmark.Name) == "" {
+		m.errorMessage = "bookmark name cannot be empty"
+		return m, nil
+	}
 	return m, saveBookmarkCmd(m.ctx, m.client, bookmark, m.editor.isNew, false)
 }
 

@@ -41,3 +41,9 @@ go.work
 # MemPalace per-project files (issue #185)
 mempalace.yaml
 entities.json
+
+# pi-subagents runtime artifacts
+.pi-subagents/
+
+# Root-level compiled binary
+nice-llama-server

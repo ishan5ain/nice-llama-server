@@ -73,6 +73,7 @@ type model struct {
 	logView           viewport.Model
 	deleteDialog      dialog.Model
 	showDialog        bool
+	pendingDeleteID   string
 	ac                autocomplete.Model
 }
 
@@ -194,11 +195,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.ResultMsg:
 		if m.showDialog {
 			m.showDialog = false
-			if msg.OK {
-				if selected := m.selectedBookmark(); selected != nil {
-					return m, deleteBookmarkCmd(m.ctx, m.client, selected.ID)
-				}
+			if msg.OK && m.pendingDeleteID != "" {
+				id := m.pendingDeleteID
+				m.pendingDeleteID = ""
+				return m, deleteBookmarkCmd(m.ctx, m.client, id)
 			}
+			m.pendingDeleteID = ""
 		}
 		return m, nil
 	case autocomplete.SelectedMsg:
