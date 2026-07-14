@@ -51,7 +51,7 @@ func TestFooterChangesByContext(t *testing.T) {
 	
 
 	m.tabs.SelectID("logs")
-	if line := ansi.Strip(m.renderFooter(100)); !strings.Contains(line, "bookmarks") {
+	if line := ansi.Strip(m.renderFooter(100)); !strings.Contains(line, "bkmarks") {
 		t.Fatalf("log footer should mention bookmarks toggle: %q", line)
 	}
 }

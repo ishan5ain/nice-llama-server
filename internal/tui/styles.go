@@ -37,6 +37,7 @@ func newStyles(theme tuiweave.Theme) styles {
 		panelFocus: lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(theme.BorderFocused).
+			Bold(true).
 			Padding(0, 1),
 		logsPanel: lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).

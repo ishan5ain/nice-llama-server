@@ -134,12 +134,16 @@ func (m *model) renderLogView(width, height int) string {
 
 	// Format log entries into content string
 	var sb strings.Builder
+	if len(m.logs) == 0 {
+		sb.WriteString(m.styles.muted.Render("Waiting for logs..."))
+	}
 	for i, entry := range m.logs {
 		if i > 0 {
 			sb.WriteByte('\n')
 		}
+		prefix := m.streamPrefix(entry.Stream)
 		tsStyle := m.logTimestampStyle(entry.Stream)
-		ts := tsStyle.Render(formatLogTimestamp(entry.TS, time.Local))
+		ts := tsStyle.Render(prefix + formatLogTimestamp(entry.TS, time.Local))
 		tsWidth := lipgloss.Width(ts)
 		lineWidth := max(0, innerW-tsWidth-1)
 		line := m.styles.muted.Render(sliceHorizontal(entry.Line, m.logScrollX, lineWidth))
@@ -187,16 +191,18 @@ func (m *model) renderFooter(width int) string {
 		}
 	} else if m.tabs.SelectedID() == "logs" {
 		leftSegments = []statusbar.Segment{
-			{Text: "↑↓", Kind: statusbar.KindAccent},
+			{Text: "↑↓/Pg", Kind: statusbar.KindAccent},
 			{Text: " scroll  ", Kind: statusbar.KindNormal},
-			{Text: "t", Kind: statusbar.KindAccent},
+			{Text: "Home/End", Kind: statusbar.KindAccent},
+			{Text: " edges  ", Kind: statusbar.KindNormal},
+			{Text: "←→", Kind: statusbar.KindAccent},
+			{Text: " h-scroll  ", Kind: statusbar.KindNormal},
+			{Text: "t/T", Kind: statusbar.KindAccent},
 			{Text: " tail  ", Kind: statusbar.KindNormal},
 			{Text: "/", Kind: statusbar.KindAccent},
-			{Text: " bookmarks  ", Kind: statusbar.KindNormal},
-			{Text: "Shift+L", Kind: statusbar.KindAccent},
-			{Text: " load  ", Kind: statusbar.KindNormal},
-			{Text: "Shift+U", Kind: statusbar.KindAccent},
-			{Text: " unload  ", Kind: statusbar.KindNormal},
+			{Text: " bkmarks  ", Kind: statusbar.KindNormal},
+			{Text: "Shift+L/U", Kind: statusbar.KindAccent},
+			{Text: " load/unld  ", Kind: statusbar.KindNormal},
 			{Text: "Ctrl+Q", Kind: statusbar.KindAccent},
 			{Text: " quit", Kind: statusbar.KindNormal},
 		}
@@ -426,15 +432,10 @@ func formatLogTimestamp(ts time.Time, loc *time.Location) string {
 }
 
 func sliceHorizontal(value string, offset, width int) string {
-	plain := []rune(ansi.Strip(value))
 	if offset < 0 {
 		offset = 0
 	}
-	if offset > len(plain) {
-		offset = len(plain)
-	}
-	end := min(len(plain), offset+width)
-	sliced := string(plain[offset:end])
+	sliced := ansi.Cut(value, offset, offset+width)
 	return padToWidth(sliced, width)
 }
 
@@ -442,6 +443,17 @@ func (m *model) scrollLogHorizontally(delta int) {
 	m.logScrollX += delta
 	if m.logScrollX < 0 {
 		m.logScrollX = 0
+	}
+}
+
+func (m *model) streamPrefix(stream string) string {
+	switch stream {
+	case "stderr":
+		return "[err] "
+	case "system":
+		return "[sys] "
+	default:
+		return "[out] "
 	}
 }
 
