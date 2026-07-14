@@ -180,6 +180,7 @@ func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.editor = editor
+		m.pendingDiscard = false
 		m.applyFocus()
 		m.flashMessage = "creating bookmark"
 		m.errorMessage = ""
@@ -191,6 +192,7 @@ func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.editor = editor
+		m.pendingDiscard = false
 		m.applyFocus()
 		m.flashMessage = "cloning bookmark"
 		m.errorMessage = ""

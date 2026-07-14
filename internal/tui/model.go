@@ -195,6 +195,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.clearEditor {
 			m.editor = nil
+			m.pendingDiscard = false
 			m.editorScope.Exit(&m.fm)
 			m.applyFocus()
 			m.showDialog = false
