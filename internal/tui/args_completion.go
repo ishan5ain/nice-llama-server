@@ -307,6 +307,16 @@ func (m *model) refreshPassiveArgCompletion() {
 		prefix:     ctx.prefix,
 		candidates: candidates,
 	}
+
+	// Populate autocomplete popup so candidates are visible immediately
+	items := make([]autocomplete.Item, 0, len(candidates))
+	for _, c := range candidates {
+		items = append(items, autocomplete.Item{
+			ID:    c.Text,
+			Value: c.Text,
+		})
+	}
+	m.ac.SetItems(items...)
 }
 
 func isPassiveArgCompletionPrefix(prefix string) bool {

@@ -306,9 +306,9 @@ func (m *model) renderArgsEditorLines(width, height int) []string {
 	if m.editor == nil {
 		return nil
 	}
-	// Reserve space for autocomplete when focused
+	// Reserve space for autocomplete popup when completion is active
 	acLines := 0
-	if m.ac.Focused() && m.ac.FilteredLen() > 0 {
+	if m.editor.completion.active && m.ac.FilteredLen() > 0 {
 		acLines = min(5, m.ac.FilteredLen())
 	}
 	textHeight := max(1, height-acLines)
