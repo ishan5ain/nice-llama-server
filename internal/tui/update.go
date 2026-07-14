@@ -11,8 +11,11 @@ import (
 )
 
 func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	// Clear transient flash on any new user interaction
-	m.flashMessage = ""
+	// Esc dismisses error messages
+	if msg.Keystroke() == "esc" && m.errorMessage != "" && !m.showDialog {
+		m.errorMessage = ""
+		return m, nil
+	}
 
 	// Dialog absorbs ALL input first
 	if m.showDialog {

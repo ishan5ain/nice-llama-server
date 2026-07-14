@@ -61,10 +61,14 @@ func (m *model) renderHeader(width int) string {
 			))
 		},
 		func(w int) string {
-			if status := strings.TrimSpace(m.messageLine()); status != "" {
-				return m.styles.headerMessage.Render(status)
+			status := strings.TrimSpace(m.messageLine())
+			if status == "" {
+				return ""
 			}
-			return ""
+			if m.errorMessage != "" {
+				return m.styles.headerError.Render(status)
+			}
+			return m.styles.headerMessage.Render(status)
 		},
 	)
 

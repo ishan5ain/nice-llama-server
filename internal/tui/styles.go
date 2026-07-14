@@ -9,6 +9,7 @@ type styles struct {
 	headerStats   lipgloss.Style
 	headerStatus  lipgloss.Style
 	headerMessage lipgloss.Style
+	headerError   lipgloss.Style
 	panelBase     lipgloss.Style
 	panelFocus    lipgloss.Style
 	logsPanel     lipgloss.Style
@@ -26,7 +27,9 @@ func newStyles(theme tuiweave.Theme) styles {
 		headerStatus: lipgloss.NewStyle().
 			Foreground(theme.Accent),
 		headerMessage: lipgloss.NewStyle().
-			Foreground(theme.Warning),
+			Foreground(theme.Success),
+		headerError: lipgloss.NewStyle().
+			Foreground(theme.Danger),
 		panelBase: lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(theme.Border).
