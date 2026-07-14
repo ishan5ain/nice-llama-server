@@ -122,8 +122,8 @@ func (m *model) renderDetailPanel(width, height int) string {
 }
 
 func (m *model) renderLogView(width, height int) string {
-	innerW := max(1, width-m.styles.panelBase.GetHorizontalFrameSize())
-	innerH := max(1, height-m.styles.panelBase.GetVerticalFrameSize())
+	innerW := max(1, width-m.styles.logsPanel.GetHorizontalFrameSize())
+	innerH := max(1, height-m.styles.logsPanel.GetVerticalFrameSize())
 
 	titleLine := m.styles.panelTitle.Render("Runtime Logs")
 	contentHeight := max(1, innerH-1)

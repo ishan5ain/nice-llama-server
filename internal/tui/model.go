@@ -165,7 +165,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errorMessage = ""
 		if len(msg.entries) > 0 {
 			wasAtBottom := m.logView.AtBottom()
-			m.logs = append(m.logs, msg.entries...)
+			for _, entry := range msg.entries {
+				if entry.Seq <= m.lastSeq {
+					continue
+				}
+				m.logs = append(m.logs, entry)
+			}
 			if len(m.logs) > maxVisibleLogs {
 				m.logs = append([]config.LogEntry(nil), m.logs[len(m.logs)-maxVisibleLogs:]...)
 			}

@@ -248,6 +248,7 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.editor = nil
 		m.editorScope.Exit(&m.fm)
+		m.ac.SetItems()
 		m.applyFocus()
 		m.errorMessage = ""
 		m.flashMessage = "discarded changes"
@@ -337,6 +338,7 @@ func (m *model) pasteIntoBuffer(text string) {
 	if text == "" || m.editor == nil {
 		return
 	}
+	text = sanitizeClipboard(text)
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
 	if m.editorScope.Active() && m.editorScope.Index() == 0 {
@@ -384,4 +386,23 @@ func readClipboard() (string, error) {
 		return "", err
 	}
 	return string(output), nil
+}
+
+// sanitizeClipboard strips null bytes and control characters (except
+// newline, carriage return, tab, and ESC for ANSI sequences) from
+// clipboard content.
+func sanitizeClipboard(text string) string {
+	var b strings.Builder
+	b.Grow(len(text))
+	for _, r := range text {
+		if r == '\n' || r == '\r' || r == '\t' || r == 0x1b {
+			b.WriteRune(r)
+			continue
+		}
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
