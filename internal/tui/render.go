@@ -39,8 +39,8 @@ func (m *model) render() string {
 
 func (m *model) renderHeader(width int) string {
 	// Build body sections using stack.Vertical.
-	// The panel subtracts 2 columns for borders, so body renders at width-2.
-	body := stack.Vertical(m.theme, max(0, width-2), stack.Options{},
+	// Panel inner width = width-2 (borders). Reserve 1 more for left padding.
+	body := stack.Vertical(m.theme, max(0, width-3), stack.Options{},
 		func(w int) string {
 			parts := []string{
 				m.styles.headerStatus.Render("Runtime " + runtimeSummary(m.snapshot)),
@@ -76,6 +76,9 @@ func (m *model) renderHeader(width int) string {
 			return m.styles.headerMessage.Render(status)
 		},
 	)
+
+	// Left-only padding: one space between border and text.
+	body = lipgloss.NewStyle().PaddingLeft(1).Render(body)
 
 	return frame.Panel(m.theme, body, width, frame.PanelOptions{
 		Title:   "Nice Llama Server",

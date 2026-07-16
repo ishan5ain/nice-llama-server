@@ -12,7 +12,7 @@ import (
 	"nice-llama-server/internal/config"
 )
 
-func TestHeaderRespectsFiveLineCap(t *testing.T) {
+func TestHeaderHeight(t *testing.T) {
 	t.Parallel()
 
 	m := newModel(context.Background(), nil)
