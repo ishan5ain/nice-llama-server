@@ -115,8 +115,8 @@ func (m *model) renderModelListPanel(width, height int) string {
 
 	isListFocused := !m.editorScope.Active() && m.fm.Index() == 1
 	style := m.panelStyleFor(isListFocused)
-	return style.Width(max(1, width-style.GetHorizontalFrameSize())).
-		Height(max(1, height-style.GetVerticalFrameSize())).
+	return style.Width(width).
+		Height(height).
 		Render(content)
 }
 
@@ -125,8 +125,8 @@ func (m *model) renderDetailPanel(width, height int) string {
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	isDetailFocused := m.editorScope.Active()
 	style := m.panelStyleFor(isDetailFocused)
-	return style.Width(max(1, width-style.GetHorizontalFrameSize())).
-		Height(max(1, height-style.GetVerticalFrameSize())).
+	return style.Width(width).
+		Height(height).
 		Render(content)
 }
 
@@ -168,8 +168,8 @@ func (m *model) renderLogView(width, height int) string {
 	viewContent := lipgloss.JoinHorizontal(lipgloss.Top, m.logView.View(), bar)
 	content := lipgloss.JoinVertical(lipgloss.Left, titleLine, viewContent)
 	style := m.styles.logsPanel
-	return style.Width(max(1, width-style.GetHorizontalFrameSize())).
-		Height(max(1, height-style.GetVerticalFrameSize())).
+	return style.Width(width).
+		Height(height).
 		Render(content)
 }
 
