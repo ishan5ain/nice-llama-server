@@ -140,11 +140,13 @@ func (m *model) handleLogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case isLoadShortcut(msg):
 		if selected := m.selectedBookmark(); selected != nil {
+			m.loading = true
 			return m, loadBookmarkCmd(m.ctx, m.client, selected.ID)
 		}
 		m.errorMessage = "select a bookmark to load"
 		return m, nil
 	case isUnloadShortcut(msg):
+		m.loading = true
 		return m, unloadCmd(m.ctx, m.client)
 	default:
 		return m, nil
@@ -210,6 +212,7 @@ func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case msg.Text == "r":
+		m.loading = true
 		return m, rescanCmd(m.ctx, m.client, nil, nil)
 	case msg.Text == "/":
 		if m.tabs.SelectedID() == "bookmarks" {
@@ -220,11 +223,13 @@ func (m *model) handleListKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case isLoadShortcut(msg):
 		if selected := m.selectedBookmark(); selected != nil {
+			m.loading = true
 			return m, loadBookmarkCmd(m.ctx, m.client, selected.ID)
 		}
 		m.errorMessage = "select a bookmark to load"
 		return m, nil
 	case isUnloadShortcut(msg):
+		m.loading = true
 		return m, unloadCmd(m.ctx, m.client)
 	default:
 		return m, nil

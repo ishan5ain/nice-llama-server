@@ -264,7 +264,7 @@ func (s *Service) LoadBookmark(ctx context.Context, bookmarkID string) (config.R
 	s.mu.Lock()
 	if s.active != nil || s.runtimeState.Status == config.StatusLoading || s.runtimeState.Status == config.StatusStopping {
 		s.mu.Unlock()
-		return config.RuntimeState{}, errors.New("a model is already active")
+		return config.RuntimeState{}, errors.New("a bookmark is already loaded")
 	}
 
 	idx := indexBookmark(s.state.Bookmarks, bookmarkID)
@@ -345,7 +345,7 @@ func (s *Service) Unload(ctx context.Context) (config.RuntimeState, error) {
 	if s.active == nil {
 		state := s.runtimeState
 		s.mu.Unlock()
-		return state, errors.New("no active model")
+		return state, errors.New("no bookmark is loaded")
 	}
 	proc := s.active
 	s.expectedExit = true

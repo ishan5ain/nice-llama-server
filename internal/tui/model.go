@@ -186,7 +186,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.loading = false
 			m.errorMessage = msg.err.Error()
-			return m, tea.Batch(fetchStateCmd(m.ctx, m.client), fetchLogsCmd(m.ctx, m.client, m.lastSeq))
+			ver := m.stateVersion
+			return m, tea.Batch(
+				func() tea.Msg {
+					reqCtx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+					defer cancel()
+					var snapshot config.Snapshot
+					err := m.client.DoWithRetry(reqCtx, http.MethodGet, "/v1/state", nil, &snapshot, 2)
+					return stateMsg{snapshot: snapshot, err: err, version: ver}
+				},
+				fetchLogsCmd(m.ctx, m.client, m.lastSeq),
+			)
 		}
 		m.loading = false
 		m.errorMessage = ""
