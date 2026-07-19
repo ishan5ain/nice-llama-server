@@ -38,6 +38,32 @@ func (m *model) nextPresetID() string {
 	return m.presetIDs[0]
 }
 
+// resolveTheme resolves a preset ID to a Theme. Custom app presets are
+// checked first, then gotui built-in presets.
+func (m *model) resolveTheme(id string) (tuiweave.Theme, bool) {
+	switch id {
+	case "glow-warm":
+		return glowWarm(), true
+	default:
+		return tuiweave.ThemeForPreset(id)
+	}
+}
+
+// presetName returns the display name for a preset ID.
+func (m *model) presetName(id string) string {
+	switch id {
+	case "glow-warm":
+		return "Glow Warm"
+	default:
+		for _, p := range tuiweave.Presets() {
+			if p.ID == id {
+				return p.Name
+			}
+		}
+		return id
+	}
+}
+
 func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Esc dismisses error messages
 	if msg.Keystroke() == "esc" && m.errorMessage != "" && !m.showDialog {
@@ -60,15 +86,10 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		nextID := m.nextPresetID()
-		if theme, ok := tuiweave.ThemeForPreset(nextID); ok {
+		if theme, ok := m.resolveTheme(nextID); ok {
 			m.rebuildTheme(theme)
 			m.currentPresetID = nextID
-			for _, p := range tuiweave.Presets() {
-				if p.ID == nextID {
-					m.flashMessage = "Theme: " + p.Name
-					break
-				}
-			}
+			m.flashMessage = "Theme: " + m.presetName(nextID)
 		}
 		return m, nil
 	case msg.Keystroke() == "tab":

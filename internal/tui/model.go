@@ -109,28 +109,29 @@ func newModel(ctx context.Context, client *controller.Client) *model {
 	m := &model{
 		ctx:               ctx,
 		client:            client,
-		theme:             tuiweave.Dark(),
-		styles:            newStyles(tuiweave.Dark()),
+		theme:             glowWarm(),
+		styles:            newStyles(glowWarm()),
 		width:             100,
 		height:            34,
 		fm:                focus.NewManager(2),
 		editorScope:        focus.NewScope(3),
 		followTailEnabled: true,
-		footer:            statusbar.New(tuiweave.Dark()),
-		logView:           viewport.New(tuiweave.Dark()),
-		deleteDialog:      dialog.New(tuiweave.Dark()),
+		footer:            statusbar.New(glowWarm()),
+		logView:           viewport.New(glowWarm()),
+		deleteDialog:      dialog.New(glowWarm()),
 	}
-	m.tabs = tabs.New(tuiweave.Dark())
+	m.tabs = tabs.New(glowWarm())
 	m.tabs.SetTabs(tabs.Tab{ID: "bookmarks", Label: "Bookmarks"}, tabs.Tab{ID: "logs", Label: "Logs"})
-	m.modelList = list.New(tuiweave.Dark())
-	m.ac = autocomplete.New(tuiweave.Dark())
+	m.modelList = list.New(glowWarm())
+	m.ac = autocomplete.New(glowWarm())
 	presets := tuiweave.Presets()
-	ids := make([]string, len(presets))
-	for i, p := range presets {
-		ids[i] = p.ID
+	ids := make([]string, 0, 1+len(presets))
+	ids = append(ids, "glow-warm")
+	for _, p := range presets {
+		ids = append(ids, p.ID)
 	}
 	m.presetIDs = ids
-	m.currentPresetID = "dark"
+	m.currentPresetID = "glow-warm"
 	m.fm.Next() // Start with list focused
 	m.fm.Apply(&m.tabs, &m.modelList)
 	return m
@@ -263,8 +264,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.BackgroundColorMsg:
 		if msg.IsDark() {
-			m.rebuildTheme(tuiweave.Dark())
-			m.currentPresetID = "dark"
+			m.rebuildTheme(glowWarm())
+			m.currentPresetID = "glow-warm"
 		} else {
 			m.rebuildTheme(tuiweave.Light())
 			m.currentPresetID = "light"
