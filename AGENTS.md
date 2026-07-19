@@ -3,6 +3,16 @@
 This is a [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) application
 built with [gotui](https://github.com/ishansain/gotui).
 
+## Guardrail — confirm destructive actions before executing
+
+Before running any command that modifies or destroys state — including
+git revert, reset, push --force, branch delete, rm -rf, kill, mv
+overwrite, or similar — you MUST:
+
+1. Pause and inspect what you're targeting.
+2. State what you're about to do and why.
+3. Wait for explicit user approval before executing.
+
 ## Before coding
 
 1. Read the gotui `AGENT-CATALOG.md` and the relevant recipe in gotui `AGENTS.md`.
