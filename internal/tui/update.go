@@ -8,7 +8,35 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/ishan5ain/tuiweave"
 )
+
+func (m *model) rebuildTheme(theme tuiweave.Theme) {
+	m.theme = theme
+	m.styles = newStyles(theme)
+	m.tabs.SetTheme(theme)
+	m.modelList.SetTheme(theme)
+	m.ac.SetTheme(theme)
+	m.footer.SetTheme(theme)
+	m.deleteDialog.SetTheme(theme)
+	if m.editor != nil {
+		m.editor.name.SetTheme(theme)
+		m.editor.args.SetTheme(theme)
+	}
+}
+
+func (m *model) nextPresetID() string {
+	if len(m.presetIDs) == 0 {
+		return m.currentPresetID
+	}
+	for i, id := range m.presetIDs {
+		if id == m.currentPresetID {
+			next := (i + 1) % len(m.presetIDs)
+			return m.presetIDs[next]
+		}
+	}
+	return m.presetIDs[0]
+}
 
 func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Esc dismisses error messages
@@ -27,6 +55,22 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Keystroke() == "ctrl+q":
 		return m, tea.Quit
+	case msg.Keystroke() == "ctrl+t":
+		if m.editorScope.Active() || m.showDialog {
+			return m, nil
+		}
+		nextID := m.nextPresetID()
+		if theme, ok := tuiweave.ThemeForPreset(nextID); ok {
+			m.rebuildTheme(theme)
+			m.currentPresetID = nextID
+			for _, p := range tuiweave.Presets() {
+				if p.ID == nextID {
+					m.flashMessage = "Theme: " + p.Name
+					break
+				}
+			}
+		}
+		return m, nil
 	case msg.Keystroke() == "tab":
 		if m.ac.Focused() {
 			// Navigate down in autocomplete

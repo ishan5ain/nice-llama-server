@@ -71,6 +71,8 @@ type model struct {
 	flashMessage      string
 	editor            *bookmarkEditor
 	followTailEnabled bool
+	currentPresetID   string
+	presetIDs          []string
 	footer            statusbar.Model
 	tabs              tabs.Model
 	logView           viewport.Model
@@ -122,6 +124,13 @@ func newModel(ctx context.Context, client *controller.Client) *model {
 	m.tabs.SetTabs(tabs.Tab{ID: "bookmarks", Label: "Bookmarks"}, tabs.Tab{ID: "logs", Label: "Logs"})
 	m.modelList = list.New(tuiweave.Dark())
 	m.ac = autocomplete.New(tuiweave.Dark())
+	presets := tuiweave.Presets()
+	ids := make([]string, len(presets))
+	for i, p := range presets {
+		ids[i] = p.ID
+	}
+	m.presetIDs = ids
+	m.currentPresetID = "dark"
 	m.fm.Next() // Start with list focused
 	m.fm.Apply(&m.tabs, &m.modelList)
 	return m
@@ -129,6 +138,7 @@ func newModel(ctx context.Context, client *controller.Client) *model {
 
 func (m *model) Init() tea.Cmd {
 	return tea.Batch(
+		tea.RequestBackgroundColor,
 		fetchStateCmd(m.ctx, m.client),
 		fetchLogsCmd(m.ctx, m.client, 0),
 		scheduleStatePoll(),
@@ -249,6 +259,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 			m.editor.completion = argCompletionState{}
 			m.ac.Blur()
+		}
+		return m, nil
+	case tea.BackgroundColorMsg:
+		if msg.IsDark() {
+			m.rebuildTheme(tuiweave.Dark())
+			m.currentPresetID = "dark"
+		} else {
+			m.rebuildTheme(tuiweave.Light())
+			m.currentPresetID = "light"
 		}
 		return m, nil
 	case tea.KeyPressMsg:

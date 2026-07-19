@@ -8,6 +8,7 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/ishan5ain/tuiweave"
 	"github.com/ishan5ain/tuiweave/frame"
 	"github.com/ishan5ain/tuiweave/overlay"
 	"github.com/ishan5ain/tuiweave/scrollbar"
@@ -58,11 +59,20 @@ func (m *model) renderHeader(width int) string {
 			return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
 		},
 		func(w int) string {
+			// Look up the current preset name
+			themeName := "Dark"
+			for _, p := range tuiweave.Presets() {
+				if p.ID == m.currentPresetID {
+					themeName = p.Name
+					break
+				}
+			}
 			return m.styles.headerStats.Render(fmt.Sprintf(
-				"%d bookmarks   %d models   %d roots",
+				"%d bookmarks   %d models   %d roots   [%s]",
 				len(m.snapshot.Bookmarks),
 				len(m.snapshot.Models),
 				len(m.snapshot.Config.ModelRoots),
+				themeName,
 			))
 		},
 		func(w int) string {

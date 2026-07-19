@@ -33,15 +33,18 @@ func newStyles(theme tuiweave.Theme) styles {
 		panelBase: lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(theme.Border).
+			Background(theme.SurfaceRaised).
 			Padding(0, 1),
 		panelFocus: lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(theme.BorderFocused).
+			Background(theme.SurfaceRaised).
 			Bold(true).
 			Padding(0, 1),
 		logsPanel: lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(theme.Warning).
+			BorderForeground(theme.Border).
+			Background(theme.SurfaceRaised).
 			Padding(0, 0),
 		panelTitle: lipgloss.NewStyle().
 			Bold(true).
@@ -50,12 +53,14 @@ func newStyles(theme tuiweave.Theme) styles {
 			Foreground(theme.TextMuted).
 			Bold(true),
 		inputBlur: lipgloss.NewStyle().
-			BorderStyle(lipgloss.NormalBorder()).
+			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(theme.Border).
+			Background(theme.SurfaceSunken).
 			Padding(0, 1),
 		inputFocus: lipgloss.NewStyle().
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(theme.Success).
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(theme.BorderFocused).
+			Background(theme.SurfaceSunken).
 			Padding(0, 1),
 		muted: lipgloss.NewStyle().
 			Foreground(theme.TextFaint),
