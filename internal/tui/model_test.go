@@ -613,6 +613,70 @@ func TestUpInNameKeepsFocusInName(t *testing.T) {
 	}
 }
 
+func TestUpInArgsMovesCursorUpWithinField(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.editor = newBookmarkEditor(config.Bookmark{
+		ArgsText: "--ctx-size 8192\n--temp 0.7",
+	}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	m.editor.args.SetSize(50, 10)
+	// Move cursor to line 1
+	m.editor.args.SetCursor(1, 0)
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	got := next.(*model)
+	row, col := got.editor.args.Cursor()
+	if row != 0 || col != 0 {
+		t.Fatalf("up in args should move cursor to line 0, got row=%d col=%d", row, col)
+	}
+	if !got.editorScope.Active() || got.editorScope.Index() != 1 {
+		t.Fatalf("focus should stay in args field")
+	}
+}
+
+func TestUpInArgsSwitchesToNameAtFirstLine(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.editor = newBookmarkEditor(config.Bookmark{
+		ArgsText: "--ctx-size 8192\n--temp 0.7",
+	}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	// Cursor already on line 0
+	m.editor.args.SetCursor(0, 0)
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	got := next.(*model)
+	if !got.editorScope.Active() || got.editorScope.Index() != 0 {
+		t.Fatalf("up on first line of args should switch focus to name, got index %d", got.editorScope.Index())
+	}
+}
+
+func TestDownInArgsMovesCursorDownWithinField(t *testing.T) {
+	t.Parallel()
+
+	m := newModel(context.Background(), nil)
+	m.editor = newBookmarkEditor(config.Bookmark{
+		ArgsText: "--ctx-size 8192\n--temp 0.7",
+	}, false, tuiweave.Dark())
+	m.editorScope.Enter(m.fm); m.editorScope.Next(); m.editor.args.Focus()
+	m.editor.args.SetSize(50, 10)
+	// Cursor on line 0
+	m.editor.args.SetCursor(0, 0)
+
+	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	got := next.(*model)
+	row, col := got.editor.args.Cursor()
+	if row != 1 || col != 0 {
+		t.Fatalf("down in args should move cursor to line 1, got row=%d col=%d", row, col)
+	}
+	if !got.editorScope.Active() || got.editorScope.Index() != 1 {
+		t.Fatalf("focus should stay in args field")
+	}
+}
+
 func TestEscDiscardsEditorAndReturnsFocusToList(t *testing.T) {
 	t.Parallel()
 

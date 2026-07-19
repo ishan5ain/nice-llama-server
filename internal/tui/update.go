@@ -283,9 +283,18 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.editorScope.Index() == 0 {
 			return m, nil
 		}
-		m.editorScope.Prev()
-		m.editorScope.Apply(&m.editor.name, &m.editor.args, &m.ac)
-		return m, nil
+		// In args field: switch to name only if cursor is on first line;
+		// otherwise let the textarea handle vertical cursor movement.
+		row, _ := m.editor.args.Cursor()
+		if row == 0 {
+			m.editorScope.Prev()
+			m.editorScope.Apply(&m.editor.name, &m.editor.args, &m.ac)
+			return m, nil
+		}
+		var upCmd tea.Cmd
+		m.editor.args, upCmd = m.editor.args.Update(msg)
+		m.errorMessage = ""
+		return m, upCmd
 	case msg.Keystroke() == "down":
 		m.editor.completion = argCompletionState{}
 		if m.editorScope.Index() == 0 {
@@ -293,7 +302,12 @@ func (m *model) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.editorScope.Apply(&m.editor.name, &m.editor.args, &m.ac)
 			return m, nil
 		}
-		return m, nil
+		// In args field: forward to textarea for vertical cursor movement.
+		// The textarea clamps at the last line.
+		var downCmd tea.Cmd
+		m.editor.args, downCmd = m.editor.args.Update(msg)
+		m.errorMessage = ""
+		return m, downCmd
 	case msg.Keystroke() == "enter":
 		if m.ac.Focused() {
 			var cmd tea.Cmd
