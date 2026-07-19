@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/ishan5ain/tuiweave"
 	"github.com/ishan5ain/tuiweave/autocomplete"
 	"github.com/ishan5ain/tuiweave/dialog"
@@ -73,6 +74,7 @@ type model struct {
 	followTailEnabled bool
 	currentPresetID   string
 	presetIDs          []string
+	chromeTheme       tuiweave.Theme
 	footer            statusbar.Model
 	tabs              tabs.Model
 	logView           viewport.Model
@@ -106,24 +108,30 @@ type pollStateMsg struct{}
 type pollLogsMsg struct{}
 
 func newModel(ctx context.Context, client *controller.Client) *model {
+	baseTheme := glowWarm()
+	chromeTheme := baseTheme
+	chromeTheme.SurfaceRaised = lipgloss.NoColor{}
+	chromeTheme.SurfaceSunken = lipgloss.NoColor{}
+
 	m := &model{
 		ctx:               ctx,
 		client:            client,
-		theme:             glowWarm(),
-		styles:            newStyles(glowWarm()),
+		theme:             baseTheme,
+		chromeTheme:       chromeTheme,
+		styles:            newStyles(baseTheme),
 		width:             100,
 		height:            34,
 		fm:                focus.NewManager(2),
 		editorScope:        focus.NewScope(3),
 		followTailEnabled: true,
-		footer:            statusbar.New(glowWarm()),
-		logView:           viewport.New(glowWarm()),
-		deleteDialog:      dialog.New(glowWarm()),
+		footer:            statusbar.New(chromeTheme),
+		logView:           viewport.New(baseTheme),
+		deleteDialog:      dialog.New(baseTheme),
 	}
-	m.tabs = tabs.New(glowWarm())
+	m.tabs = tabs.New(chromeTheme)
 	m.tabs.SetTabs(tabs.Tab{ID: "bookmarks", Label: "Bookmarks"}, tabs.Tab{ID: "logs", Label: "Logs"})
-	m.modelList = list.New(glowWarm())
-	m.ac = autocomplete.New(glowWarm())
+	m.modelList = list.New(baseTheme)
+	m.ac = autocomplete.New(chromeTheme)
 	presets := tuiweave.Presets()
 	ids := make([]string, 0, 1+len(presets))
 	ids = append(ids, "glow-warm")

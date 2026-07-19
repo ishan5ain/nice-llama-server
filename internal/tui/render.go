@@ -8,6 +8,7 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/ishan5ain/tuiweave/frame"
 	"github.com/ishan5ain/tuiweave/overlay"
 	"github.com/ishan5ain/tuiweave/scrollbar"
 	"github.com/ishan5ain/tuiweave/splitpane"
@@ -80,11 +81,14 @@ func (m *model) renderHeader(width int) string {
 	// Left-only padding: one space between border and text.
 	body = lipgloss.NewStyle().PaddingLeft(1).Render(body)
 
-	return m.renderPanel(body, width, "Nice Llama Server", true)
+	return frame.Panel(m.chromeTheme, body, width, frame.PanelOptions{
+		Title:   "Nice Llama Server",
+		Focused: true,
+	})
 }
 
 func (m *model) renderBottom(width, height int) string {
-	tabBar := m.renderTabStrip(width)
+	tabBar := m.tabs.View()
 	contentHeight := max(1, height-lipgloss.Height(tabBar))
 	var content string
 	if m.tabs.SelectedID() == "logs" {
@@ -93,119 +97,6 @@ func (m *model) renderBottom(width, height int) string {
 		content = m.renderBookmarkEditorView(width, contentHeight)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content)
-}
-
-// renderPanel renders a rounded-border panel without any background fill,
-// matching the frame.Panel layout contract but leaving the interior
-// transparent so the terminal background shows through.
-func (m *model) renderPanel(body string, width int, title string, focused bool) string {
-	if width < 2 {
-		return ""
-	}
-
-	borderColor := m.theme.Border
-	if focused {
-		borderColor = m.theme.BorderFocused
-	}
-	border := lipgloss.NewStyle().Foreground(borderColor)
-	innerWidth := width - 2
-
-	// Render body without background
-	bodyStyle := lipgloss.NewStyle().
-		Width(innerWidth).
-		Foreground(m.theme.Text)
-	bodyLines := strings.Split(bodyStyle.Render(body), "\n")
-	for i, line := range bodyLines {
-		bodyLines[i] = border.Render(string(lipgloss.RoundedBorder().Left)) +
-			line +
-			border.Render(string(lipgloss.RoundedBorder().Right))
-	}
-
-	// Top border with optional title
-	var top string
-	rounded := lipgloss.RoundedBorder()
-	if title == "" || innerWidth < 3 {
-		top = border.Render(string(rounded.TopLeft) + strings.Repeat(rounded.Top, innerWidth) + rounded.TopRight)
-	} else {
-		maxTitle := max(0, innerWidth-2)
-		titleText := ansi.Truncate(title, maxTitle, "…")
-		titleText = " " + titleText + " "
-		remaining := innerWidth - lipgloss.Width(titleText)
-		if remaining < 0 {
-			remaining = 0
-		}
-		titleColor := m.theme.TextMuted
-		if focused {
-			titleColor = m.theme.Accent
-		}
-		top = border.Render(string(rounded.TopLeft)) +
-			lipgloss.NewStyle().Foreground(titleColor).Bold(focused).Render(titleText) +
-			border.Render(strings.Repeat(rounded.Top, remaining) + rounded.TopRight)
-	}
-
-	bottom := border.Render(string(rounded.BottomLeft)) +
-		border.Render(strings.Repeat(rounded.Bottom, innerWidth)) +
-		border.Render(string(rounded.BottomRight))
-
-	return strings.Join([]string{top, strings.Join(bodyLines, "\n"), bottom}, "\n")
-}
-
-// renderTabStrip renders the Bookmarks/Logs tab strip without any background
-// fill, using only foreground colors and borders.
-func (m *model) renderTabStrip(width int) string {
-	if width <= 0 {
-		return ""
-	}
-
-	tabs := []struct {
-		id    string
-		label string
-	}{
-		{"bookmarks", "Bookmarks"},
-		{"logs", "Logs"},
-	}
-
-	selectedID := m.tabs.SelectedID()
-	focused := m.tabs.Focused()
-
-	var parts []string
-	used := 0
-	for i, tab := range tabs {
-		if i > 0 {
-			sep := lipgloss.NewStyle().Foreground(m.theme.TextFaint).Render(" ")
-			parts = append(parts, sep)
-			used += lipgloss.Width(sep)
-		}
-
-		isSelected := tab.id == selectedID
-		var label string
-		if isSelected {
-			if focused {
-				label = lipgloss.NewStyle().
-					Foreground(m.theme.SelectionFg).
-					Background(m.theme.SelectionBg).
-					Bold(true).
-					Render(" " + tab.label + " ")
-			} else {
-				label = lipgloss.NewStyle().
-					Foreground(m.theme.Accent).
-					Bold(true).
-					Render(" " + tab.label + " ")
-			}
-		} else {
-			label = lipgloss.NewStyle().
-				Foreground(m.theme.TextMuted).
-				Render(" " + tab.label + " ")
-		}
-		parts = append(parts, label)
-		used += lipgloss.Width(label)
-	}
-
-	if used < width {
-		parts = append(parts, strings.Repeat(" ", width-used))
-	}
-
-	return strings.Join(parts, "")
 }
 
 func (m *model) renderBookmarkEditorView(width, height int) string {

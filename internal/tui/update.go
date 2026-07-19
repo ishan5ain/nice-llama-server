@@ -7,17 +7,25 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/ishan5ain/tuiweave"
 )
 
 func (m *model) rebuildTheme(theme tuiweave.Theme) {
 	m.theme = theme
+	// Derive a chrome theme with transparent surfaces for structural
+	// components (header panel, tabs, statusbar, autocomplete).
+	chrome := theme
+	chrome.SurfaceRaised = lipgloss.NoColor{}
+	chrome.SurfaceSunken = lipgloss.NoColor{}
+	m.chromeTheme = chrome
+
 	m.styles = newStyles(theme)
-	m.tabs.SetTheme(theme)
+	m.tabs.SetTheme(chrome)
 	m.modelList.SetTheme(theme)
-	m.ac.SetTheme(theme)
-	m.footer.SetTheme(theme)
+	m.ac.SetTheme(chrome)
+	m.footer.SetTheme(chrome)
 	m.deleteDialog.SetTheme(theme)
 	if m.editor != nil {
 		m.editor.name.SetTheme(theme)
