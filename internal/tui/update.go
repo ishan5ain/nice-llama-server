@@ -10,6 +10,11 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/ishan5ain/tuiweave"
+	"github.com/ishan5ain/tuiweave/autocomplete"
+	"github.com/ishan5ain/tuiweave/dialog"
+	"github.com/ishan5ain/tuiweave/list"
+	"github.com/ishan5ain/tuiweave/statusbar"
+	"github.com/ishan5ain/tuiweave/tabs"
 )
 
 func (m *model) rebuildTheme(theme tuiweave.Theme) {
@@ -22,15 +27,70 @@ func (m *model) rebuildTheme(theme tuiweave.Theme) {
 	m.chromeTheme = chrome
 
 	m.styles = newStyles(theme)
-	m.tabs.SetTheme(chrome)
-	m.modelList.SetTheme(theme)
-	m.ac.SetTheme(chrome)
-	m.footer.SetTheme(chrome)
-	m.deleteDialog.SetTheme(theme)
-	if m.editor != nil {
-		m.editor.name.SetTheme(theme)
-		m.editor.args.SetTheme(theme)
+
+	// Recreate each component with the new theme, preserving state.
+
+	// tabs
+	{
+		savedTabs := m.tabs.Tabs()
+		savedSel := m.tabs.Selected()
+		savedFocused := m.tabs.Focused()
+		m.tabs = tabs.New(chrome)
+		m.tabs.SetTabs(savedTabs...)
+		m.tabs.Select(savedSel)
+		if savedFocused {
+			m.tabs.Focus()
+		}
 	}
+
+	// list
+	{
+		savedItems := m.modelList.Items()
+		savedSel := m.modelList.Selected()
+		savedFilter := m.modelList.Filter()
+		savedFocused := m.modelList.Focused()
+		m.modelList = list.New(theme)
+		m.modelList.SetItems(savedItems...)
+		m.modelList.SetFilter(savedFilter)
+		m.modelList.Select(savedSel)
+		if savedFocused {
+			m.modelList.Focus()
+		}
+	}
+
+	// autocomplete
+	{
+		savedItems := m.ac.Items()
+		savedSel := m.ac.Selected()
+		savedQuery := m.ac.Query()
+		savedFocused := m.ac.Focused()
+		m.ac = autocomplete.New(chrome)
+		m.ac.SetItems(savedItems...)
+		m.ac.SetQuery(savedQuery)
+		m.ac.Select(savedSel)
+		if savedFocused {
+			m.ac.Focus()
+		}
+	}
+
+	// statusbar — segments repopulated on next renderFooter() call
+	m.footer = statusbar.New(chrome)
+
+	// dialog
+	{
+		savedTitle := m.deleteDialog.Title
+		savedBody := m.deleteDialog.Body
+		savedConfirm := m.deleteDialog.ConfirmLabel
+		savedCancel := m.deleteDialog.CancelLabel
+		m.deleteDialog = dialog.New(theme)
+		m.deleteDialog.Title = savedTitle
+		m.deleteDialog.Body = savedBody
+		m.deleteDialog.ConfirmLabel = savedConfirm
+		m.deleteDialog.CancelLabel = savedCancel
+	}
+
+	// Editor components (textarea, textinput) are created fresh per edit
+	// in newBookmarkEditor — no state to preserve here.
 }
 
 func (m *model) nextPresetID() string {
