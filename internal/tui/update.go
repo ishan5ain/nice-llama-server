@@ -30,7 +30,7 @@ func (m *model) rebuildTheme(theme tuiweave.Theme) {
 
 	// Recreate each component with the new theme, preserving state.
 
-	// tabs
+	// tabs — restore size after recreate (SetSize only called in WindowSizeMsg)
 	{
 		savedTabs := m.tabs.Tabs()
 		savedSel := m.tabs.Selected()
@@ -38,12 +38,13 @@ func (m *model) rebuildTheme(theme tuiweave.Theme) {
 		m.tabs = tabs.New(chrome)
 		m.tabs.SetTabs(savedTabs...)
 		m.tabs.Select(savedSel)
+		m.tabs.SetSize(m.width, 1)
 		if savedFocused {
 			m.tabs.Focus()
 		}
 	}
 
-	// list
+	// list — restore size after recreate
 	{
 		savedItems := m.modelList.Items()
 		savedSel := m.modelList.Selected()
@@ -53,6 +54,7 @@ func (m *model) rebuildTheme(theme tuiweave.Theme) {
 		m.modelList.SetItems(savedItems...)
 		m.modelList.SetFilter(savedFilter)
 		m.modelList.Select(savedSel)
+		m.modelList.SetSize(m.width/2, m.height-10)
 		if savedFocused {
 			m.modelList.Focus()
 		}
